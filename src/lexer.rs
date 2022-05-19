@@ -69,26 +69,15 @@ impl<'a> Lexer<'a> {
             ')' => Token::new(token::RPAREN, self.ch),
             '{' => Token::new(token::LBRACE, self.ch),
             '}' => Token::new(token::RBRACE, self.ch),
-            '\0' => {
-                Token {
-                    Literal: "".to_string(),
-                    Type:    token::EOF,
-                }
-            }
+            '\0' => Token::with_str(token::EOF, String::new()),
             _ => {
                 if is_letter(self.ch) {
                     let ident = self.read_identifier();
                     let token_type = token::lookup_ident(&ident);
-                    return Token {
-                        Literal: ident,
-                        Type:    token_type,
-                    };
+                    return Token::with_str(token_type, ident);
                 } else if is_digit(self.ch) {
                     let literal = self.read_number();
-                    return Token {
-                        Literal: literal,
-                        Type:    token::INT,
-                    };
+                    return Token::with_str(token::INT, literal);
                 } else {
                     Token::new(token::ILLEGAL, self.ch)
                 }
@@ -266,17 +255,17 @@ mod tests {
             let token = lexer.next_token();
             println!("{:?}", token);
 
-            if token.Type != *expected_type {
+            if token.type_ != *expected_type {
                 panic!(
                     "tests[{}]: expected token type {}, got {}",
-                    i, expected_type, token.Type
+                    i, expected_type, token.type_
                 );
             }
 
-            if token.Literal != *expected_literal {
+            if token.literal != *expected_literal {
                 panic!(
                     "tests[{}]: expected token literal {}, got {}",
-                    i, expected_literal, token.Literal
+                    i, expected_literal, token.literal
                 );
             }
         }

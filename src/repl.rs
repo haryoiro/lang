@@ -19,7 +19,7 @@ pub fn start(stdin: &mut io::Stdin, stdout: &mut io::Stdout) {
 
         loop {
             let token = lexer.next_token();
-            if token.Type == token::EOF {
+            if token.type_ == token::EOF {
                 break;
             }
             println!("{:?}", token);

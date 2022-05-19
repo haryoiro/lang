@@ -3,21 +3,21 @@ pub type TokenType = &'static str;
 #[allow(non_snake_case)]
 #[derive(Debug, Clone, PartialEq)]
 pub struct Token {
-    pub Type:    TokenType,
-    pub Literal: String,
+    pub type_:   TokenType,
+    pub literal: String,
 }
 
 impl Token {
     pub fn with_str(token_type: TokenType, literal: String) -> Token {
         Token {
-            Type:    token_type,
-            Literal: literal,
+            type_: token_type,
+            literal,
         }
     }
     pub fn new(token_type: TokenType, literal: char) -> Token {
         Token {
-            Type:    token_type,
-            Literal: literal.to_string(),
+            type_:   token_type,
+            literal: literal.to_string(),
         }
     }
 }
@@ -29,7 +29,7 @@ pub const KEYWORDS: &[(&str, TokenType)] = &[
     ("false", "FALSE"),
     ("if", "IF"),
     ("else", "ELSE"),
-    ("retrun", "RETURN"),
+    ("return", "RETURN"),
 ];
 
 pub fn lookup_ident(ident: &str) -> TokenType {
@@ -45,7 +45,7 @@ pub const ILLEGAL: TokenType = "ILLEGAL";
 pub const EOF: TokenType = "EOF";
 
 // Identifiers + literals
-pub const IDENT: TokenType = "INDENT";
+pub const IDENT: TokenType = "IDENT";
 pub const INT: TokenType = "INT";
 
 // Operators
