@@ -17,6 +17,9 @@ pub enum Statement {
     Expression {
         expression: Expression,
     },
+    Block {
+        statements: Vec<Statement>,
+    },
 }
 
 pub trait IStatement: Node {
@@ -35,6 +38,7 @@ impl Node for Statement {
             Statement::Let { .. } => "let".to_string(),
             Statement::Return { .. } => "return".to_string(),
             Statement::Expression { .. } => "expression".to_string(),
+            Statement::Block { .. } => "block".to_string(),
         }
     }
 }
@@ -51,6 +55,12 @@ impl Display for Statement {
             Statement::Expression { expression } => {
                 write!(f, "{}", expression.to_string())
             }
+            Statement::Block { statements } => {
+                for statement in statements {
+                    write!(f, "{}", statement.to_string())?;
+                }
+                Ok(())
+            }
         }
     }
 }
@@ -62,6 +72,18 @@ pub enum Expression {
     },
     Integer {
         value: i64,
+    },
+    Boolean {
+        value: bool,
+    },
+    If {
+        condition:   Box<Expression>,
+        consequence: Box<Statement>,
+        alternative: Option<Box<Statement>>,
+    },
+    Function {
+        parameters: Vec<Expression>,
+        body:       Box<Statement>,
     },
     Prefix {
         operator: String,
@@ -88,6 +110,9 @@ impl Node for Expression {
         match self {
             Expression::Identifier { value } => value.to_string(),
             Expression::Integer { value } => value.to_string(),
+            Expression::Boolean { value } => value.to_string(),
+            Expression::If { .. } => "if".to_string(),
+            Expression::Function { .. } => "function".to_string(),
             Expression::Prefix { operator, .. } => operator.to_string(),
             Expression::Infix { operator, .. } => operator.to_string(),
         }
@@ -99,6 +124,33 @@ impl Display for Expression {
         match self {
             Expression::Identifier { value, .. } => write!(f, "{}", value),
             Expression::Integer { value, .. } => write!(f, "{}", value),
+            Expression::Boolean { value, .. } => write!(f, "{}", value),
+            Expression::If {
+                condition,
+                consequence,
+                alternative,
+            } => {
+                let mut alternative_str = "".to_string();
+                if let Some(alt) = alternative {
+                    alternative_str = format!("else {}", alt.to_string());
+                }
+
+                write!(
+                    f,
+                    "if {} {} {}",
+                    condition.to_string(),
+                    consequence.to_string(),
+                    alternative_str
+                )
+            }
+            Expression::Function { parameters, body } => {
+                let mut params = vec![];
+                for param in parameters {
+                    params.push(param.to_string());
+                }
+
+                write!(f, "fn ({}) {}", params.join(", "), body.to_string())
+            }
             Expression::Prefix {
                 operator, right, ..
             } => write!(f, "({}{})", operator, right),
