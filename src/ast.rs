@@ -76,6 +76,7 @@ pub enum Expression {
     Boolean {
         value: bool,
     },
+    Null,
     If {
         condition:   Box<Expression>,
         consequence: Box<Statement>,
@@ -84,6 +85,10 @@ pub enum Expression {
     Function {
         parameters: Vec<Expression>,
         body:       Box<Statement>,
+    },
+    Call {
+        function:  Box<Expression>,
+        arguments: Vec<Expression>,
     },
     Prefix {
         operator: String,
@@ -111,8 +116,10 @@ impl Node for Expression {
             Expression::Identifier { value } => value.to_string(),
             Expression::Integer { value } => value.to_string(),
             Expression::Boolean { value } => value.to_string(),
+            Expression::Null => "null".to_string(),
             Expression::If { .. } => "if".to_string(),
-            Expression::Function { .. } => "function".to_string(),
+            Expression::Function { .. } => "fn".to_string(),
+            Expression::Call { .. } => "call".to_string(),
             Expression::Prefix { operator, .. } => operator.to_string(),
             Expression::Infix { operator, .. } => operator.to_string(),
         }
@@ -125,6 +132,7 @@ impl Display for Expression {
             Expression::Identifier { value, .. } => write!(f, "{}", value),
             Expression::Integer { value, .. } => write!(f, "{}", value),
             Expression::Boolean { value, .. } => write!(f, "{}", value),
+            Expression::Null => write!(f, "null"),
             Expression::If {
                 condition,
                 consequence,
@@ -149,7 +157,18 @@ impl Display for Expression {
                     params.push(param.to_string());
                 }
 
-                write!(f, "fn ({}) {}", params.join(", "), body.to_string())
+                write!(f, "fn ({}) {{{}}}", params.join(", "), body.to_string())
+            }
+            Expression::Call {
+                function,
+                arguments,
+            } => {
+                let args = arguments
+                    .iter()
+                    .map(|arg| arg.to_string())
+                    .collect::<Vec<String>>()
+                    .join(", ");
+                write!(f, "{}({})", function.as_ref().to_string(), args)
             }
             Expression::Prefix {
                 operator, right, ..
