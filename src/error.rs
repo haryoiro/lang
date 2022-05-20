@@ -3,20 +3,14 @@ use std::{
     io,
 };
 
-#[derive(Debug)]
-pub enum MError {
-    RustError(io::Error),
-    ParseError(String),
-}
+use derive_more::Display;
 
-impl Display for MError {
-    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
-        match *self {
-            MError::ParseError(ref s) => write!(f, "parse error: {}", s),
-            MError::RustError(ref e) => write!(f, "rust error: {}", e),
-        };
-        Ok(())
-    }
+#[derive(Debug, Display)]
+pub enum MError {
+    #[display(fmt = "Rust Error: {}", _0)]
+    RustError(io::Error),
+    #[display(fmt = "Parser Error: {}", _0)]
+    ParseError(String),
 }
 
 impl std::convert::From<io::Error> for MError {

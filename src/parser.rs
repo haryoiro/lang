@@ -313,7 +313,6 @@ impl<'a> Parser<'a> {
         let name = ast::Expression::Identifier {
             value: self.current_token.literal.clone(),
         };
-        println!("name: {:?}", name);
         // ASSIGNじゃない場合構文エラー
         if !self.expect_peek(token::ASSIGN) {
             self.errors
@@ -326,7 +325,6 @@ impl<'a> Parser<'a> {
         // <expression>
         let value = self.parse_expression(Precedence::LOWEST);
 
-        println!("value: {:?}", value);
         if self.peek_token_is(token::SEMICOLON) {
             self.next_token();
         }
