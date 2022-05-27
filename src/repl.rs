@@ -1,10 +1,17 @@
 use std::io::{self, BufRead, Write};
 
-use crate::{error::MError, lexer::Lexer, parser::Parser, token};
+use crate::{
+    environment::Environment,
+    error::{print_parser_errors},
+    evaluator::Eval,
+    lexer::Lexer,
+    parser::Parser,
+};
 
 const PROMPT: &str = ">> ";
 
 pub fn start(stdin: &mut io::Stdin, stdout: &mut io::Stdout) {
+    let mut env = Environment::new();
     loop {
         let mut input = String::new();
         print!("{} ", PROMPT);
@@ -17,22 +24,14 @@ pub fn start(stdin: &mut io::Stdin, stdout: &mut io::Stdout) {
 
         let mut lexer = Lexer::new(&input);
         let mut parser = Parser::new(&mut lexer);
+        let program = parser.parse_program();
 
-        loop {
-            let program = parser.parse_program();
-            if parser.errors.len() > 0 {
-                print_parser_errors(&parser.errors);
-                break;
-            }
-
-            println!("{}\n", program.to_string());
-            break;
+        if parser.errors.len() > 0 {
+            print_parser_errors(&parser.errors);
+            continue;
         }
-    }
-}
 
-fn print_parser_errors(errors: &Vec<MError>) {
-    for error in errors.iter() {
-        println!("{}", error);
+        let result = program.eval(&mut env);
+        println!("{}", result);
     }
 }

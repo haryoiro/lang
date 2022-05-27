@@ -1,11 +1,11 @@
 use std::fmt::{Display, Error, Formatter};
 
-use crate::token::{self, Token};
 
 pub trait Node {
     fn token_literal(&self) -> String;
 }
-#[derive(Debug)]
+
+#[derive(PartialEq, Eq, Clone, Debug)]
 pub enum Statement {
     Let {
         name:  Expression,
@@ -22,7 +22,7 @@ pub enum Statement {
     },
 }
 
-pub trait IStatement: Node {
+pub trait IStatement {
     fn statement_node(&self) -> bool;
 }
 
@@ -65,7 +65,7 @@ impl Display for Statement {
     }
 }
 
-#[derive(Debug)]
+#[derive(PartialEq, Eq, Clone, Debug)]
 pub enum Expression {
     Identifier {
         value: String,
@@ -73,10 +73,19 @@ pub enum Expression {
     Integer {
         value: i64,
     },
+    String {
+        value: String,
+    },
     Boolean {
         value: bool,
     },
-    Null,
+    Array {
+        elements: Vec<Expression>,
+    },
+    Index {
+        left: Box<Expression>,
+        index: Box<Expression>,
+    },
     If {
         condition:   Box<Expression>,
         consequence: Box<Statement>,
@@ -101,12 +110,13 @@ pub enum Expression {
     },
 }
 
-trait IExpression: Node {
-    fn expression_node(&self);
+pub trait IExpression {
+    fn expression_node(&self) -> bool;
 }
 
 impl IExpression for Expression {
-    fn expression_node(&self) {
+    fn expression_node(&self) -> bool {
+        true
     }
 }
 
@@ -115,8 +125,10 @@ impl Node for Expression {
         match self {
             Expression::Identifier { value } => value.to_string(),
             Expression::Integer { value } => value.to_string(),
+            Expression::String { value } => value.to_string(),
             Expression::Boolean { value } => value.to_string(),
-            Expression::Null => "null".to_string(),
+            Expression::Array { .. } => "array".to_string(),
+            Expression::Index { .. } => "index".to_string(),
             Expression::If { .. } => "if".to_string(),
             Expression::Function { .. } => "fn".to_string(),
             Expression::Call { .. } => "call".to_string(),
@@ -131,8 +143,21 @@ impl Display for Expression {
         match self {
             Expression::Identifier { value, .. } => write!(f, "{}", value),
             Expression::Integer { value, .. } => write!(f, "{}", value),
+            Expression::String { value, .. } => write!(f, "{}", value),
             Expression::Boolean { value, .. } => write!(f, "{}", value),
-            Expression::Null => write!(f, "null"),
+            Expression::Array { elements } => {
+                write!(f, "[")?;
+                for (i, element) in elements.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{}", element.to_string())?;
+                }
+                write!(f, "]")
+            },
+            Expression::Index { left, index } => {
+                write!(f, "{}[{}]", left.to_string(), index.to_string())
+            },
             Expression::If {
                 condition,
                 consequence,
@@ -182,9 +207,20 @@ impl Display for Expression {
         }
     }
 }
+
+pub trait IProgram {
+    fn program_node(&self) -> bool;
+}
+
 #[derive(Debug)]
 pub struct Program {
     pub statements: Vec<Statement>,
+}
+
+impl IProgram for Program {
+    fn program_node(&self) -> bool {
+        true
+    }
 }
 
 impl Node for Program {

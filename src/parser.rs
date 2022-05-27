@@ -1,13 +1,11 @@
 use std::{
     collections::HashMap,
-    io::{Error, ErrorKind},
-    marker::PhantomData,
 };
 
 use once_cell::sync::Lazy;
 
 use crate::{
-    ast::{self, Expression, Statement},
+    ast::{self, Expression},
     error::MError,
     lexer,
     token::{self, Token, TokenType},
@@ -22,6 +20,7 @@ enum Precedence {
     PRODUCT,     // *
     PREFIX,      // -X or !X
     CALL,        // myFunction(X)
+    INDEX,       // array[index]
 }
 
 static PRECEDENCES: Lazy<HashMap<&'static str, Precedence>> = Lazy::new(|| {
@@ -35,6 +34,7 @@ static PRECEDENCES: Lazy<HashMap<&'static str, Precedence>> = Lazy::new(|| {
     m.insert(token::SLASH, Precedence::PRODUCT);
     m.insert(token::ASTERISK, Precedence::PRODUCT);
     m.insert(token::LPAREN, Precedence::CALL);
+    m.insert(token::LBRACKET, Precedence::INDEX);
     m
 });
 pub struct Parser<'a> {
@@ -70,6 +70,8 @@ impl<'a> Parser<'a> {
         parser.register_prefix(token::FALSE, Parser::parse_boolean);
         parser.register_prefix(token::LPAREN, Parser::parse_grouped_expression);
         parser.register_prefix(token::IF, Parser::parse_if_expression);
+        parser.register_prefix(token::STRING, Parser::parse_string_literal);
+        parser.register_prefix(token::LBRACKET, Parser::parse_array_literal);
         parser.register_infix(token::PLUS, Parser::parse_infix_expression);
         parser.register_infix(token::MINUS, Parser::parse_infix_expression);
         parser.register_infix(token::SLASH, Parser::parse_infix_expression);
@@ -79,6 +81,7 @@ impl<'a> Parser<'a> {
         parser.register_infix(token::LT, Parser::parse_infix_expression);
         parser.register_infix(token::GT, Parser::parse_infix_expression);
         parser.register_infix(token::LPAREN, Parser::parse_call_expression);
+        parser.register_infix(token::LBRACKET, Parser::parse_index_expression);
 
         parser.next_token();
         parser.next_token();
@@ -236,7 +239,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_call_expression(&mut self, function: ast::Expression) -> ast::Expression {
-        let arguments = self.parse_call_arguments();
+        let arguments = self.parse_expression_list(token::RPAREN);
 
         return ast::Expression::Call {
             function: Box::new(function),
@@ -244,32 +247,53 @@ impl<'a> Parser<'a> {
         };
     }
 
-    fn parse_call_arguments(&mut self) -> Vec<ast::Expression> {
-        let mut arguments = vec![];
-
-        if self.peek_token_is(token::RPAREN) {
-            self.next_token();
-            return arguments;
-        }
+    fn parse_index_expression(&mut self, left: ast::Expression) -> ast::Expression {
+        let left =Box::new(left);
 
         self.next_token();
-        arguments.push(self.parse_expression(Precedence::LOWEST));
+        let index = Box::new(self.parse_expression(Precedence::LOWEST));
 
-        while self.peek_token_is(token::COMMA) {
-            self.next_token();
-            self.next_token();
-            arguments.push(self.parse_expression(Precedence::LOWEST));
-        }
-
-        if !self.expect_peek(token::RPAREN) {
+        if !self.expect_peek(token::RBRACKET) {
             self.errors.push(MError::ParseError(format!(
                 "Expected next token to be {}, got={:?}",
-                token::RPAREN,
+                token::RBRACKET,
                 self.current_token
             )));
         }
 
-        return arguments;
+        return ast::Expression::Index {
+            left,
+            index,
+        };
+    }
+
+    fn parse_expression_list(&mut self, end: TokenType) -> Vec<Expression> {
+        let mut list = vec![];
+
+        if self.peek_token_is(end) {
+            self.next_token();
+            return list;
+        }
+
+        self.next_token();
+        list.push(self.parse_expression(Precedence::LOWEST));
+
+        while self.peek_token_is(token::COMMA) {
+            self.next_token();
+            self.next_token();
+            list.push(self.parse_expression(Precedence::LOWEST));
+        }
+
+        if !self.expect_peek(end) {
+            self.errors.push(MError::ParseError(format!(
+                "expected next token to be {}, got={:?}",
+                end,
+                self.current_token
+            )));
+        }
+
+        return list;
+
     }
 
     fn parse_identifier(&mut self) -> ast::Expression {
@@ -277,6 +301,7 @@ impl<'a> Parser<'a> {
             value: self.current_token.literal.clone(),
         };
     }
+
 
     fn parse_boolean(&mut self) -> ast::Expression {
         return ast::Expression::Boolean {
@@ -300,6 +325,18 @@ impl<'a> Parser<'a> {
         };
 
         return ast::Expression::Integer { value };
+    }
+
+    fn parse_string_literal(&mut self) -> ast::Expression {
+        return ast::Expression::String {
+            value: self.current_token.literal.clone(),
+        };
+    }
+
+    fn parse_array_literal(&mut self) -> ast::Expression {
+        let elements = self.parse_expression_list(token::RBRACKET);
+
+        return ast::Expression::Array { elements };
     }
 
     /// let <identifier> = <expression>;
@@ -428,6 +465,8 @@ impl<'a> Parser<'a> {
         return identifiers;
     }
 
+
+
     fn current_token_is(&self, token_type: TokenType) -> bool {
         self.current_token.type_ == token_type
     }
@@ -461,6 +500,7 @@ impl<'a> Parser<'a> {
             Precedence::PRODUCT => Precedence::PRODUCT,
             Precedence::PREFIX => Precedence::PREFIX,
             Precedence::CALL => Precedence::CALL,
+            Precedence::INDEX => Precedence::INDEX,
         }
     }
 
@@ -478,6 +518,7 @@ impl<'a> Parser<'a> {
             Precedence::PRODUCT => Precedence::PRODUCT,
             Precedence::PREFIX => Precedence::PREFIX,
             Precedence::CALL => Precedence::CALL,
+            Precedence::INDEX => Precedence::INDEX,
         }
     }
 
@@ -572,21 +613,7 @@ mod tests {
         }
     }
 
-    fn test_let_statement(statement: &Statement, expected: &str) -> bool {
-        match statement {
-            Statement::Let { name, .. } => {
-                match name {
-                    Expression::Identifier { value, .. } => {
-                        return value == expected;
-                    }
-                    _ => {
-                        return false;
-                    }
-                }
-            }
-            _ => return false,
-        }
-    }
+
 
     #[test]
     fn test_return_statement() {
@@ -611,7 +638,7 @@ mod tests {
             );
         }
 
-        for (i, statement) in program.statements.iter().enumerate() {
+        for (_, statement) in program.statements.iter().enumerate() {
             println!("{:?}", &statement);
             match statement {
                 Statement::Return { value: _ } => {
@@ -1111,6 +1138,11 @@ mod tests {
                 "add(a + b + c * d / f + g)",
                 "add((((a + b) + ((c * d) / f)) + g))",
             ),
+            ("a * [1, 2, 3, 4][b * c] * d", "((a * ([1, 2, 3, 4][(b * c)])) * d)"),
+            (
+                "add(a * b[2], b[1], 2 * [1, 2][1])",
+                "add((a * (b[2])), (b[1]), (2 * ([1, 2][1])))",
+            ),
         ];
 
         for (input, expected) in inputs {
@@ -1308,6 +1340,78 @@ mod tests {
             &"+".to_string(),
             &Expression::Integer { value: 5 },
         );
+    }
+
+    #[test]
+    fn test_string_literal_expression() {
+        let input = r#""hello world""#;
+
+        let mut lex = Lexer::new(input);
+        let mut parser = Parser::new(&mut lex);
+        let program = parser.parse_program();
+
+        if parser.errors.len() > 0 {
+            for e in parser.errors {
+                println!("{}", e);
+            }
+        }
+
+        let statement = &program.statements[0];
+
+        let exp = match statement {
+            Statement::Expression { expression } => {
+                match expression {
+                    Expression::String { value } => value,
+                    _ => panic!("Expected string. got={:?}", expression),
+                }
+            }
+            _ => panic!("Expected expression. got={:?}", statement),
+        };
+
+        assert_eq!(exp, "hello world");
+    }
+
+    #[test]
+    fn test_parsing_index_expression() {
+        let input = "myArray[1 + 1];";
+
+        let mut lex = Lexer::new(input);
+        let mut parser = Parser::new(&mut lex);
+        let program = parser.parse_program();
+
+        if parser.errors.len() > 0 {
+            for e in parser.errors {
+                println!("{}", e);
+            }
+        }
+
+        let statement = &program.statements[0];
+        let exp = match statement {
+            Statement::Expression { expression } => {
+                match expression {
+                    Expression::Index {
+                        left,
+                        index,
+                    } => (left, index),
+                    _ => panic!("Expected index. got={:?}", expression),
+                }
+            }
+            _ => panic!("Expected expression. got={:?}", statement),
+        };
+
+        if !test_identifier(exp.0, "myArray") {
+            panic!("Expected identifier. got={:?}", exp.0);
+        }
+
+        if !test_infix_expression(
+            exp.1,
+            &Expression::Integer { value: 1 },
+            &"+".to_string(),
+            &Expression::Integer { value: 1 },
+        ) {
+            panic!("Expected infix expression. got={:?}", exp.1);
+        }
+
     }
 
     /// helper function of infix_expression

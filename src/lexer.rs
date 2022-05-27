@@ -1,4 +1,4 @@
-use crate::token::{self, Token, TokenType};
+use crate::token::{self, Token};
 
 #[derive(Debug)]
 pub struct Lexer<'a> {
@@ -37,22 +37,33 @@ impl<'a> Lexer<'a> {
         let token = match self.ch {
             // Operators
             '=' => {
-                // Todo: makeTowCharToken
+                // Check Equal Operator "=="
                 if self.peek_char() == '=' {
-                    let tmp_c = self.ch;
                     self.read_char();
-                    let lit = format!("{}{}", tmp_c, self.ch);
-                    Token::with_str(token::EQ, lit)
+                    // Check Deep Equal Operator "==="
+                    if self.peek_char() == '=' {
+                        self.read_char();
+                        Token::with_str(token::DEEP_EQ, "===".to_string())
+                    } else {
+                        // return Equal Operator "=="
+                        Token::with_str(token::EQ, "==".to_string())
+                    }
                 } else {
                     Token::new(token::ASSIGN, self.ch)
                 }
             }
             '!' => {
+                // Check Not Equal Operator "!="
                 if self.peek_char() == '=' {
-                    let tmp_c = self.ch;
                     self.read_char();
-                    let lit = format!("{}{}", tmp_c, self.ch);
-                    Token::with_str(token::NOT_EQ, lit)
+                    // Check Deep Not Equal Operator "!=="
+                    if self.peek_char() == '=' {
+                        self.read_char();
+                        Token::with_str(token::DEEP_NOT_EQ, "!==".to_string())
+                    } else {
+                        // return Not Equal Operator "!="
+                        Token::with_str(token::NOT_EQ, "!=".to_string())
+                    }
                 } else {
                     Token::new(token::BANG, self.ch)
                 }
@@ -68,8 +79,11 @@ impl<'a> Lexer<'a> {
             ';' => Token::new(token::SEMICOLON, self.ch),
             '(' => Token::new(token::LPAREN, self.ch),
             ')' => Token::new(token::RPAREN, self.ch),
+            '[' => Token::new(token::LBRACKET, self.ch),
+            ']' => Token::new(token::RBRACKET, self.ch),
             '{' => Token::new(token::LBRACE, self.ch),
             '}' => Token::new(token::RBRACE, self.ch),
+            '"' => Token::with_str(token::STRING, self.read_string()),
             '\0' => Token::with_str(token::EOF, String::new()),
             _ => {
                 if is_letter(self.ch) {
@@ -112,11 +126,35 @@ impl<'a> Lexer<'a> {
             }
             self.read_char();
         }
-        self.input
-            .chars()
-            .skip(position)
-            .take(self.position - position)
-            .collect()
+        self.input.get(position..self.position).unwrap().to_string()
+    }
+
+    fn read_string(&mut self) -> String {
+        let mut result = String::new();
+        loop {
+            self.read_char();
+            match self.ch {
+                '"' => break,
+                '\\' => {
+                    self.read_char();
+                    match self.ch {
+                        'n' => result.push('\n'),
+                        'r' => result.push('\r'),
+                        't' => result.push('\t'),
+                        '\\' => result.push('\\'),
+                        '\'' => result.push('\''),
+                        '"' => result.push('"'),
+                        _ => {
+                            result.push('\\');
+                            result.push(self.ch);
+                        }
+                    }
+                },
+                '\0' => panic!("Unterminated string"),
+                _ => result.push(self.ch),
+            }
+        }
+        return result
     }
 
     fn peek_char(&self) -> char {
@@ -167,6 +205,12 @@ mod tests {
 
         10 == 10;
         10 != 9;
+
+        "foobar"
+        "foo bar"
+        "foo\nbar"
+        [1, 2];
+        ["foo", "bar"];
 
         "#;
 
@@ -253,6 +297,26 @@ mod tests {
             (token::INT, "10"),
             (token::NOT_EQ, "!="),
             (token::INT, "9"),
+            (token::SEMICOLON, ";"),
+            // "foobar"
+            (token::STRING, "foobar"),
+            // "foo bar"
+            (token::STRING, "foo bar"),
+            // "foo\nbar"
+            (token::STRING, "foo\nbar"),
+            // [1, 2];
+            (token::LBRACKET, "["),
+            (token::INT, "1"),
+            (token::COMMA, ","),
+            (token::INT, "2"),
+            (token::RBRACKET, "]"),
+            (token::SEMICOLON, ";"),
+            // ["foo", "bar"];
+            (token::LBRACKET, "["),
+            (token::STRING, "foo"),
+            (token::COMMA, ","),
+            (token::STRING, "bar"),
+            (token::RBRACKET, "]"),
             (token::SEMICOLON, ";"),
             (token::EOF, ""),
         ];

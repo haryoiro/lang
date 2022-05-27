@@ -1,5 +1,4 @@
 use std::{
-    fmt::{Display, Formatter},
     io,
 };
 
@@ -16,5 +15,11 @@ pub enum MError {
 impl std::convert::From<io::Error> for MError {
     fn from(e: io::Error) -> Self {
         MError::RustError(e)
+    }
+}
+
+pub fn print_parser_errors(errors: &Vec<MError>) {
+    for (i, error) in errors.iter().enumerate() {
+        println!("{i}@{error}");
     }
 }
