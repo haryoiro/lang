@@ -1,14 +1,14 @@
 use std::{
-    collections::HashMap,
+    collections::{HashMap, BTreeMap},
 };
 
 use once_cell::sync::Lazy;
 
 use crate::{
-    ast::{self, Expression},
+    ast::{self, Expression, Literal},
     error::MError,
     lexer,
-    token::{self, Token, TokenType},
+    token::{Token, TokenType, CodePosition},
 };
 
 #[derive(PartialEq, PartialOrd)]
@@ -23,28 +23,28 @@ enum Precedence {
     INDEX,       // array[index]
 }
 
-static PRECEDENCES: Lazy<HashMap<&'static str, Precedence>> = Lazy::new(|| {
+static PRECEDENCES: Lazy<HashMap<TokenType, Precedence>> = Lazy::new(|| {
     let mut m = HashMap::new();
-    m.insert(token::EQ, Precedence::EQUALS);
-    m.insert(token::NOT_EQ, Precedence::EQUALS);
-    m.insert(token::LT, Precedence::LESSGREATER);
-    m.insert(token::GT, Precedence::LESSGREATER);
-    m.insert(token::PLUS, Precedence::SUM);
-    m.insert(token::MINUS, Precedence::SUM);
-    m.insert(token::SLASH, Precedence::PRODUCT);
-    m.insert(token::ASTERISK, Precedence::PRODUCT);
-    m.insert(token::LPAREN, Precedence::CALL);
-    m.insert(token::LBRACKET, Precedence::INDEX);
+    m.insert(TokenType::EQ, Precedence::EQUALS);
+    m.insert(TokenType::NotEq, Precedence::EQUALS);
+    m.insert(TokenType::LT, Precedence::LESSGREATER);
+    m.insert(TokenType::GT, Precedence::LESSGREATER);
+    m.insert(TokenType::PLUS, Precedence::SUM);
+    m.insert(TokenType::MINUS, Precedence::SUM);
+    m.insert(TokenType::SLASH, Precedence::PRODUCT);
+    m.insert(TokenType::ASTERISK, Precedence::PRODUCT);
+    m.insert(TokenType::LPAREN, Precedence::CALL);
+    m.insert(TokenType::LBRACKET, Precedence::INDEX);
     m
 });
 pub struct Parser<'a> {
     lexer: &'a mut lexer::Lexer<'a>,
 
-    current_token: token::Token,
-    peek_token:    token::Token,
+    current_token: Token,
+    peek_token:    Token,
 
-    prefix_parse_fns: HashMap<TokenType, fn(&mut Self) -> ast::Expression>,
-    infix_parse_fns:  HashMap<TokenType, fn(&mut Self, ast::Expression) -> ast::Expression>,
+    prefix_parse_fns: HashMap<TokenType, fn(&mut Self) -> Expression>,
+    infix_parse_fns:  HashMap<TokenType, fn(&mut Self, Expression) -> Expression>,
 
     pub errors: Vec<MError>,
 }
@@ -53,35 +53,36 @@ impl<'a> Parser<'a> {
     pub fn new(lexer: &'a mut lexer::Lexer<'a>) -> Parser<'a> {
         let mut parser = Parser {
             lexer,
-            current_token: Token::with_str(token::ILLEGAL, String::new()),
-            peek_token: Token::with_str(token::ILLEGAL, String::new()),
+            current_token: Token::new(TokenType::ILLEGAL,CodePosition::default()),
+            peek_token: Token::new(TokenType::ILLEGAL, CodePosition::default()),
             prefix_parse_fns: HashMap::new(),
             infix_parse_fns: HashMap::new(),
 
             errors: Vec::new(),
         };
 
-        parser.register_prefix(token::IDENT, Parser::parse_identifier);
-        parser.register_prefix(token::INT, Parser::parse_integer_literal);
-        parser.register_prefix(token::FUNCTION, Parser::parse_function_literal);
-        parser.register_prefix(token::BANG, Parser::parse_prefix_expression);
-        parser.register_prefix(token::MINUS, Parser::parse_prefix_expression);
-        parser.register_prefix(token::TRUE, Parser::parse_boolean);
-        parser.register_prefix(token::FALSE, Parser::parse_boolean);
-        parser.register_prefix(token::LPAREN, Parser::parse_grouped_expression);
-        parser.register_prefix(token::IF, Parser::parse_if_expression);
-        parser.register_prefix(token::STRING, Parser::parse_string_literal);
-        parser.register_prefix(token::LBRACKET, Parser::parse_array_literal);
-        parser.register_infix(token::PLUS, Parser::parse_infix_expression);
-        parser.register_infix(token::MINUS, Parser::parse_infix_expression);
-        parser.register_infix(token::SLASH, Parser::parse_infix_expression);
-        parser.register_infix(token::ASTERISK, Parser::parse_infix_expression);
-        parser.register_infix(token::EQ, Parser::parse_infix_expression);
-        parser.register_infix(token::NOT_EQ, Parser::parse_infix_expression);
-        parser.register_infix(token::LT, Parser::parse_infix_expression);
-        parser.register_infix(token::GT, Parser::parse_infix_expression);
-        parser.register_infix(token::LPAREN, Parser::parse_call_expression);
-        parser.register_infix(token::LBRACKET, Parser::parse_index_expression);
+        parser.register_prefix(TokenType::IDENT, Parser::parse_identifier);
+        parser.register_prefix(TokenType::INT, Parser::parse_integer_literal);
+        parser.register_prefix(TokenType::FUNCTION, Parser::parse_function_literal);
+        parser.register_prefix(TokenType::BANG, Parser::parse_prefix_expression);
+        parser.register_prefix(TokenType::MINUS, Parser::parse_prefix_expression);
+        parser.register_prefix(TokenType::TRUE, Parser::parse_boolean);
+        parser.register_prefix(TokenType::FALSE, Parser::parse_boolean);
+        parser.register_prefix(TokenType::LPAREN, Parser::parse_grouped_expression);
+        parser.register_prefix(TokenType::IF, Parser::parse_if_expression);
+        parser.register_prefix(TokenType::STRING, Parser::parse_string_literal);
+        parser.register_prefix(TokenType::LBRACKET, Parser::parse_array_literal);
+        parser.register_prefix(TokenType::LBRACE, Parser::parse_hash_literal);
+        parser.register_infix(TokenType::PLUS, Parser::parse_infix_expression);
+        parser.register_infix(TokenType::MINUS, Parser::parse_infix_expression);
+        parser.register_infix(TokenType::SLASH, Parser::parse_infix_expression);
+        parser.register_infix(TokenType::ASTERISK, Parser::parse_infix_expression);
+        parser.register_infix(TokenType::EQ, Parser::parse_infix_expression);
+        parser.register_infix(TokenType::NotEq, Parser::parse_infix_expression);
+        parser.register_infix(TokenType::LT, Parser::parse_infix_expression);
+        parser.register_infix(TokenType::GT, Parser::parse_infix_expression);
+        parser.register_infix(TokenType::LPAREN, Parser::parse_call_expression);
+        parser.register_infix(TokenType::LBRACKET, Parser::parse_index_expression);
 
         parser.next_token();
         parser.next_token();
@@ -96,7 +97,7 @@ impl<'a> Parser<'a> {
     pub fn parse_program(&mut self) -> ast::Program {
         let mut program = ast::Program { statements: vec![] };
 
-        while self.current_token.type_ != token::EOF {
+        while self.current_token.token_type != TokenType::EOF {
             let statement = self.parse_statement();
             program.statements.push(statement);
             self.next_token();
@@ -106,84 +107,82 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_statement(&mut self) -> ast::Statement {
-        match self.current_token.type_ {
-            token::LET => self.parse_let_statement(),
-            token::RETURN => self.parse_return_statement(),
+        match self.current_token.token_type {
+            TokenType::LET => self.parse_let_statement(),
+            TokenType::RETURN => self.parse_return_statement(),
             _ => self.parse_expression_statement(),
         }
     }
 
-    fn parse_expression(&mut self, precedence: Precedence) -> ast::Expression {
-        let prefix = self.prefix_parse_fns.get(&self.current_token.type_);
+    fn parse_expression(&mut self, precedence: Precedence) -> Expression {
+        let prefix = self.prefix_parse_fns.get(&self.current_token.token_type);
         let prefix = match prefix {
             Some(prefix) => *prefix,
             None => {
                 self.errors.push(MError::ParseError(format!(
                     "no prefix parse function for {:?}",
-                    self.current_token.type_
+                    self.current_token.token_type
                 )));
-                return ast::Expression::Identifier {
-                    value: self.current_token.literal.clone(),
-                };
+                return Expression::Literal(Literal::Identifier(self.current_token.literal.clone().unwrap()))
             }
         };
 
         let mut left_expression = prefix(self);
 
-        while !self.peek_token_is(token::SEMICOLON) && precedence < self.peek_precedence() {
+        while !self.peek_token_is(&TokenType::SEMICOLON) && precedence < self.peek_precedence() {
             {
-                let infix = self.infix_parse_fns.get(self.peek_token.type_.clone());
+                let infix = self.infix_parse_fns.get(&self.peek_token.token_type.clone());
                 if infix.is_none() {
                     return left_expression;
                 }
             }
             self.next_token();
-            let infix = self.infix_parse_fns.get(self.current_token.type_).unwrap();
+            let infix = self.infix_parse_fns.get(&self.current_token.token_type).unwrap();
             left_expression = infix(self, left_expression);
         }
 
         left_expression
     }
 
-    fn parse_prefix_expression(&mut self) -> ast::Expression {
-        let operator = self.current_token.literal.clone();
+    fn parse_prefix_expression(&mut self) -> Expression {
+        let operator = self.current_token.to_string();
 
         self.next_token();
 
         let right = self.parse_expression(Precedence::PREFIX);
 
-        ast::Expression::Prefix {
+        Expression::Prefix {
             operator,
             right: Box::new(right),
         }
     }
 
-    fn parse_infix_expression(&mut self, left: ast::Expression) -> ast::Expression {
-        let operator = self.current_token.literal.clone();
+    fn parse_infix_expression(&mut self, left: Expression) -> Expression {
+        let operator = &self.current_token.to_string();
         let left = left;
 
         let precedence = self.current_precedence();
         self.next_token();
         let right = self.parse_expression(precedence);
 
-        return ast::Expression::Infix {
-            operator,
+        return Expression::Infix {
+            operator: operator.clone(),
             left: Box::new(left),
             right: Box::new(right),
         };
     }
 
-    fn parse_grouped_expression(&mut self) -> ast::Expression {
+    fn parse_grouped_expression(&mut self) -> Expression {
         self.next_token();
 
         let exp = self.parse_expression(Precedence::LOWEST);
-        if !self.expect_peek(token::RPAREN) {}
+        if !self.expect_peek(&TokenType::RPAREN) {}
 
         return exp;
     }
 
-    fn parse_if_expression(&mut self) -> ast::Expression {
-        if !self.expect_peek(token::LPAREN) {
+    fn parse_if_expression(&mut self) -> Expression {
+        if !self.expect_peek(&TokenType::LPAREN) {
             self.errors.push(MError::ParseError(format!(
                 "no left parenthesis after if: {:?}",
                 self.current_token
@@ -193,31 +192,31 @@ impl<'a> Parser<'a> {
         self.next_token();
         let condition = Box::new(self.parse_expression(Precedence::LOWEST));
 
-        if !self.expect_peek(token::RPAREN) {
+        if !self.expect_peek(&TokenType::RPAREN) {
             self.errors.push(MError::ParseError(format!(
                 "Expectted next token to be {}, got={:?}",
-                token::RPAREN,
+                TokenType::RPAREN,
                 self.current_token
             )));
         }
 
-        if !self.expect_peek(token::LBRACE) {
+        if !self.expect_peek(&TokenType::LBRACE) {
             self.errors.push(MError::ParseError(format!(
                 "Expected next token to be {}, got={:?}",
-                token::LBRACE,
+                TokenType::LBRACE,
                 self.current_token
             )));
         }
 
         let consequence = Box::new(self.parse_block_statement());
 
-        if self.peek_token_is(token::ELSE) {
+        if self.peek_token_is(&TokenType::ELSE) {
             self.next_token();
 
-            if !self.peek_token_is(token::LBRACE) {
+            if !self.peek_token_is(&TokenType::LBRACE) {
                 self.errors.push(MError::ParseError(format!(
                     "Expected next token to be {}, got={:?}",
-                    token::LBRACE,
+                    TokenType::LBRACE,
                     self.current_token
                 )));
             }
@@ -238,30 +237,30 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_call_expression(&mut self, function: ast::Expression) -> ast::Expression {
-        let arguments = self.parse_expression_list(token::RPAREN);
+    fn parse_call_expression(&mut self, function: Expression) -> Expression {
+        let arguments = self.parse_expression_list(TokenType::RPAREN);
 
-        return ast::Expression::Call {
+        return Expression::Call {
             function: Box::new(function),
             arguments,
         };
     }
 
-    fn parse_index_expression(&mut self, left: ast::Expression) -> ast::Expression {
-        let left =Box::new(left);
+    fn parse_index_expression(&mut self, left: Expression) -> Expression {
+        let left = Box::new(left);
 
         self.next_token();
         let index = Box::new(self.parse_expression(Precedence::LOWEST));
 
-        if !self.expect_peek(token::RBRACKET) {
+        if !self.expect_peek(&TokenType::RBRACKET) {
             self.errors.push(MError::ParseError(format!(
                 "Expected next token to be {}, got={:?}",
-                token::RBRACKET,
+                TokenType::RBRACKET,
                 self.current_token
             )));
         }
 
-        return ast::Expression::Index {
+        return Expression::Index {
             left,
             index,
         };
@@ -270,7 +269,7 @@ impl<'a> Parser<'a> {
     fn parse_expression_list(&mut self, end: TokenType) -> Vec<Expression> {
         let mut list = vec![];
 
-        if self.peek_token_is(end) {
+        if self.peek_token_is(&end) {
             self.next_token();
             return list;
         }
@@ -278,13 +277,13 @@ impl<'a> Parser<'a> {
         self.next_token();
         list.push(self.parse_expression(Precedence::LOWEST));
 
-        while self.peek_token_is(token::COMMA) {
+        while self.peek_token_is(&TokenType::COMMA) {
             self.next_token();
             self.next_token();
             list.push(self.parse_expression(Precedence::LOWEST));
         }
 
-        if !self.expect_peek(end) {
+        if !self.expect_peek(&end) {
             self.errors.push(MError::ParseError(format!(
                 "expected next token to be {}, got={:?}",
                 end,
@@ -296,62 +295,94 @@ impl<'a> Parser<'a> {
 
     }
 
-    fn parse_identifier(&mut self) -> ast::Expression {
-        return ast::Expression::Identifier {
-            value: self.current_token.literal.clone(),
-        };
+    fn parse_identifier(&mut self) -> Expression {
+        return Expression::Literal(Literal::Identifier(self.current_token.literal.clone().unwrap()));
     }
 
 
-    fn parse_boolean(&mut self) -> ast::Expression {
-        return ast::Expression::Boolean {
-            value: self.current_token.literal.clone() == "true",
-        };
+    fn parse_boolean(&mut self) -> Expression {
+        return Expression::Literal(Literal::from_token(&self.current_token));
     }
 
-    fn parse_integer_literal(&mut self) -> ast::Expression {
-        let token = self.current_token.clone();
-        let value = i64::from_str_radix(&token.literal, 10);
+    fn parse_integer_literal(&mut self) -> Expression {
+        let lit = self.current_token.literal.clone().unwrap();
+        let value = i64::from_str_radix(&lit, 10);
 
         let value = match value {
             Ok(value) => value,
             Err(_) => {
                 self.errors.push(MError::ParseError(format!(
                     "could not parse {} as integer",
-                    token.literal
+                    &lit
                 )));
-                return ast::Expression::Integer { value: 0 };
+                return Expression::Literal(Literal::from_token(&self.current_token));
             }
         };
 
-        return ast::Expression::Integer { value };
+        return Expression::Literal(Literal::Integer(value));
     }
 
-    fn parse_string_literal(&mut self) -> ast::Expression {
-        return ast::Expression::String {
-            value: self.current_token.literal.clone(),
-        };
+    fn parse_string_literal(&mut self) -> Expression {
+        return Expression::Literal(Literal::from_token(&self.current_token));
     }
 
-    fn parse_array_literal(&mut self) -> ast::Expression {
-        let elements = self.parse_expression_list(token::RBRACKET);
+    fn parse_array_literal(&mut self) -> Expression {
+        let elements = self.parse_expression_list(TokenType::RBRACKET);
 
-        return ast::Expression::Array { elements };
+        return Expression::Array { elements };
+    }
+
+    fn parse_hash_literal(&mut self) -> Expression {
+        let hash = HashMap::new();
+
+        while !self.peek_token_is(&TokenType::RBRACE) {
+            self.next_token();
+            let key = self.parse_expression(Precedence::LOWEST);
+
+            if !self.expect_peek(&TokenType::COLON) {
+                self.errors.push(MError::ParseError(format!(
+                    "Expected next token to be {}, got={:?}",
+                    TokenType::COLON,
+                    self.current_token
+                )));
+            }
+
+            self.next_token();
+            let value = self.parse_expression(Precedence::LOWEST);
+
+            hash.insert(key, value);
+
+            if !self.peek_token_is(&TokenType::RBRACE) && !self.expect_peek(&TokenType::COMMA) {
+                self.errors.push(MError::ParseError(format!(
+                    "Expected next token to be {}, got={:?}",
+                    TokenType::COMMA,
+                    self.current_token
+                )));
+            }
+        }
+
+        if !self.expect_peek(&TokenType::RBRACE) {
+            self.errors.push(MError::ParseError(format!(
+                "Expected next token to be {}, got={:?}",
+                TokenType::RBRACE,
+                self.current_token
+            )));
+        }
+
+        return Expression::Literal(Literal::Hash(hash));
     }
 
     /// let <identifier> = <expression>;
     fn parse_let_statement(&mut self) -> ast::Statement {
-        if !self.expect_peek(token::IDENT) {
+        if !self.expect_peek(&TokenType::IDENT) {
             self.errors
                 .push(MError::ParseError("expected identifier".to_string()));
         }
 
         // <identifier>
-        let name = ast::Expression::Identifier {
-            value: self.current_token.literal.clone(),
-        };
+        let name = Expression::Literal(Literal::Identifier(self.current_token.to_string()));
         // ASSIGNじゃない場合構文エラー
-        if !self.expect_peek(token::ASSIGN) {
+        if !self.expect_peek(&TokenType::ASSIGN) {
             self.errors
                 .push(MError::ParseError("expected =".to_string()));
         };
@@ -362,7 +393,7 @@ impl<'a> Parser<'a> {
         // <expression>
         let value = self.parse_expression(Precedence::LOWEST);
 
-        if self.peek_token_is(token::SEMICOLON) {
+        if self.peek_token_is(&TokenType::SEMICOLON) {
             self.next_token();
         }
 
@@ -374,7 +405,7 @@ impl<'a> Parser<'a> {
 
         let value = self.parse_expression(Precedence::LOWEST);
 
-        if self.peek_token_is(token::SEMICOLON) {
+        if self.peek_token_is(&TokenType::SEMICOLON) {
             self.next_token();
         }
 
@@ -384,7 +415,7 @@ impl<'a> Parser<'a> {
     fn parse_expression_statement(&mut self) -> ast::Statement {
         let expression = self.parse_expression(Precedence::LOWEST);
 
-        if self.peek_token_is(token::SEMICOLON) {
+        if self.peek_token_is(&TokenType::SEMICOLON) {
             self.next_token();
         }
 
@@ -396,7 +427,7 @@ impl<'a> Parser<'a> {
 
         self.next_token();
 
-        while !self.current_token_is(token::RBRACE) && !self.current_token_is(token::EOF) {
+        while !self.current_token_is(&TokenType::RBRACE) && !self.current_token_is(&TokenType::EOF) {
             statements.push(self.parse_statement());
             self.next_token();
         }
@@ -404,21 +435,21 @@ impl<'a> Parser<'a> {
         return ast::Statement::Block { statements };
     }
 
-    fn parse_function_literal(&mut self) -> ast::Expression {
-        if !self.expect_peek(token::LPAREN) {
+    fn parse_function_literal(&mut self) -> Expression {
+        if !self.expect_peek(&TokenType::LPAREN) {
             self.errors.push(MError::ParseError(format!(
                 "expected next token to be {}, got={:?}",
-                token::LPAREN,
+                TokenType::LPAREN,
                 self.current_token
             )));
         }
 
         let parameters = self.parse_function_prameters();
 
-        if !self.expect_peek(token::LBRACE) {
+        if !self.expect_peek(&TokenType::LBRACE) {
             self.errors.push(MError::ParseError(format!(
                 "expected next token to be {}, got={:?}",
-                token::LBRACE,
+                TokenType::LBRACE,
                 self.current_token
             )));
         }
@@ -434,30 +465,26 @@ impl<'a> Parser<'a> {
         let mut identifiers = vec![];
 
         // (
-        if self.peek_token_is(token::RPAREN) {
+        if self.peek_token_is(&TokenType::RPAREN) {
             self.next_token();
             return identifiers;
         }
 
         self.next_token();
 
-        identifiers.push(ast::Expression::Identifier {
-            value: self.current_token.literal.clone(),
-        });
+        identifiers.push(Expression::Literal(Literal::Identifier(self.current_token.to_string())));
 
-        while self.peek_token_is(token::COMMA) {
+        while self.peek_token_is(&TokenType::COMMA) {
             self.next_token();
             self.next_token();
-            identifiers.push(ast::Expression::Identifier {
-                value: self.current_token.literal.clone(),
-            });
+            identifiers.push(Expression::Literal(Literal::Identifier(self.current_token.to_string())));
         }
 
         // )
-        if !self.expect_peek(token::RPAREN) {
+        if !self.expect_peek(&TokenType::RPAREN) {
             self.errors.push(MError::ParseError(format!(
                 "expected next token to be {}, got={:?}",
-                token::RPAREN,
+                TokenType::RPAREN,
                 self.current_token
             )));
         }
@@ -467,13 +494,13 @@ impl<'a> Parser<'a> {
 
 
 
-    fn current_token_is(&self, token_type: TokenType) -> bool {
-        self.current_token.type_ == token_type
+    fn current_token_is(&self, token_type: &TokenType) -> bool {
+        &self.current_token.token_type == token_type
     }
-    fn peek_token_is(&self, token_type: TokenType) -> bool {
-        self.peek_token.type_ == token_type
+    fn peek_token_is(&self, token_type: &TokenType) -> bool {
+        &self.peek_token.token_type == token_type
     }
-    fn expect_peek(&mut self, token_type: TokenType) -> bool {
+    fn expect_peek(&mut self, token_type: &TokenType) -> bool {
         if self.peek_token_is(token_type) {
             self.next_token();
             return true;
@@ -487,7 +514,7 @@ impl<'a> Parser<'a> {
     }
 
     fn peek_precedence(&mut self) -> Precedence {
-        let p = PRECEDENCES.get(&self.peek_token.type_);
+        let p = PRECEDENCES.get(&self.peek_token.token_type);
         let p = match p {
             Some(p) => p,
             None => &Precedence::LOWEST,
@@ -505,7 +532,7 @@ impl<'a> Parser<'a> {
     }
 
     fn current_precedence(&mut self) -> Precedence {
-        let p = PRECEDENCES.get(&self.current_token.type_);
+        let p = PRECEDENCES.get(&self.current_token.token_type);
         let p = match p {
             Some(p) => p,
             None => &Precedence::LOWEST,
@@ -522,14 +549,14 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn register_prefix(&mut self, token_type: TokenType, fn_: fn(&mut Self) -> ast::Expression) {
+    fn register_prefix(&mut self, token_type: TokenType, fn_: fn(&mut Self) -> Expression) {
         self.prefix_parse_fns.insert(token_type, fn_);
     }
 
     fn register_infix(
         &mut self,
         token_type: TokenType,
-        fn_: fn(&mut Self, ast::Expression) -> ast::Expression,
+        fn_: fn(&mut Self, Expression) -> Expression,
     ) {
         self.infix_parse_fns.insert(token_type, fn_);
     }
@@ -552,23 +579,17 @@ mod tests {
             (
                 "let x = 5;",
                 "x",
-                Expression::Identifier {
-                    value: 5.to_string(),
-                },
+                Expression::Literal(Literal::Integer(5)),
             ),
             (
                 "let y = true;",
                 "y",
-                Expression::Identifier {
-                    value: true.to_string(),
-                },
+                Expression::Literal(Literal::Boolean(true)),
             ),
             (
                 "let foobar = y;",
                 "foobar",
-                Expression::Identifier {
-                    value: "y".to_string(),
-                },
+                Expression::Literal(Literal::Identifier(String::from("y"))),
             ),
         ];
 
@@ -586,26 +607,23 @@ mod tests {
                 Statement::Let {
                     name: i, value: v, ..
                 } => {
-                    println!("name:{}", i);
-                    println!("value:{}", v);
                     match i {
-                        Expression::Identifier { value: n } => assert_eq!(n, ident),
+                        Expression::Literal(Literal::Identifier(i)) => {
+                            assert_eq!(i, ident);
+                        }
                         _ => panic!("not identifier"),
                     }
                     match v {
-                        Expression::Integer { value: n } => {
-                            assert_eq!(
-                                n,
-                                &i64::from_str_radix(value.to_string().as_str(), 10).unwrap()
-                            )
+                        Expression::Literal(Literal::Integer(i)) => {
+                            assert_eq!(i.to_string(), value.to_string());
                         }
-                        Expression::Boolean { value: n } => {
-                            assert_eq!(n, &value.to_string().parse::<bool>().unwrap())
+                        Expression::Literal(Literal::Boolean(b)) => {
+                            assert_eq!(b.to_string(), value.to_string());
                         }
-                        Expression::Identifier { value: n } => {
-                            assert_eq!(n, &value.to_string())
+                        Expression::Literal(Literal::Identifier(i)) => {
+                            assert_eq!(i.to_string(), value.to_string());
                         }
-                        _ => panic!("not identifier"),
+                        _ => panic!("not integer"),
                     }
                 }
                 _ => panic!("not let statement"),
@@ -677,13 +695,9 @@ mod tests {
 
                         if !test_infix_expression(
                             condition,
-                            &Expression::Identifier {
-                                value: "x".to_string(),
-                            },
+                            &Expression::Literal(Literal::Identifier("x".to_string())),
                             &"<".to_string(),
-                            &Expression::Identifier {
-                                value: "y".to_string(),
-                            },
+                            &Expression::Literal(Literal::Identifier("y".to_string())),
                         ) {
                             panic!("Failed to parse if condition");
                         }
@@ -695,13 +709,8 @@ mod tests {
                                 match &statements[0] {
                                     Statement::Expression { expression } => {
                                         match expression {
-                                            Expression::Identifier { value } => {
-                                                if value != "x" {
-                                                    panic!(
-                                                        "Failed to parse if consequence: {}",
-                                                        expression
-                                                    );
-                                                }
+                                            Expression::Literal(Literal::Identifier(n)) => {
+                                                assert_eq!(n, "x")
                                             }
                                             _ => {
                                                 panic!(
@@ -767,13 +776,9 @@ mod tests {
 
                         if !test_infix_expression(
                             condition,
-                            &Expression::Identifier {
-                                value: "x".to_string(),
-                            },
+                            &Expression::ident("x".to_string()),
                             &"<".to_string(),
-                            &Expression::Identifier {
-                                value: "y".to_string(),
-                            },
+                            &Expression::ident("y".to_string()),
                         ) {
                             panic!("Failed to parse if condition");
                         }
@@ -785,13 +790,8 @@ mod tests {
                                 match &statements[0] {
                                     Statement::Expression { expression } => {
                                         match expression {
-                                            Expression::Identifier { value } => {
-                                                if value != "x" {
-                                                    panic!(
-                                                        "Failed to parse if consequence: {}",
-                                                        expression
-                                                    );
-                                                }
+                                            Expression::Literal(Literal::Identifier(n)) => {
+                                                assert_eq!(n, "x")
                                             }
                                             _ => {
                                                 panic!(
@@ -824,13 +824,8 @@ mod tests {
                                         match &statements[0] {
                                             Statement::Expression { expression } => {
                                                 match expression {
-                                                    Expression::Identifier { value } => {
-                                                        if value != "y" {
-                                                            panic!(
-                                                                "Failed to parse if alternative: {}",
-                                                                expression
-                                                            );
-                                                        }
+                                                    Expression::Literal(Literal::Identifier(n)) => {
+                                                        assert_eq!(n, "y")
                                                     }
                                                     _ => {
                                                         panic!(
@@ -894,10 +889,8 @@ mod tests {
         match statement {
             Statement::Expression { expression } => {
                 match expression {
-                    Expression::Identifier { value } => {
-                        if value != "foobar" {
-                            panic!("identifier is not foobar. got={}", value);
-                        }
+                    Expression::Literal(Literal::Identifier(n)) => {
+                        assert_eq!(n, "foobar");
                     }
                     _ => panic!("Expected identifier. got={:?}", expression),
                 }
@@ -929,10 +922,8 @@ mod tests {
         match statement {
             Statement::Expression { expression } => {
                 match expression {
-                    Expression::Integer { value } => {
-                        if *value != 5 as i64 {
-                            panic!("identifier is not 5. got={}", value);
-                        }
+                    Expression::Literal(Literal::Integer(n)) => {
+                        assert_eq!(n, &5);
                     }
                     _ => panic!("Expected integer. got={:?}", expression),
                 }
@@ -944,10 +935,10 @@ mod tests {
     #[test]
     fn test_parsing_prefix_expressions() {
         let inputs = vec![
-            ("!5;", "!", Expression::Integer { value: 5 }),
-            ("-15;", "-", Expression::Integer { value: 15 }),
-            ("!true;", "!", Expression::Boolean { value: true }),
-            ("!false;", "!", Expression::Boolean { value: false }),
+            ("!5;", "!", Expression::int(5)),
+            ("-15;", "-", Expression::int(15)),
+            ("!true;", "!", Expression::bool(true)),
+            ("!false;", "!", Expression::bool(false)),
         ];
 
         for (input, operator, value) in inputs {
@@ -981,15 +972,11 @@ mod tests {
 
                             let right = right.as_ref();
                             match right {
-                                Expression::Integer { value: i_value } => {
-                                    if i_value.to_string() != value.to_string() {
-                                        panic!("Expected value={}. got={}", i_value, value);
-                                    }
+                                Expression::Literal(Literal::Integer(n)) => {
+                                    assert_eq!(n.to_string(), value.to_string());
                                 }
-                                Expression::Boolean { value: b_value } => {
-                                    if b_value.to_string() != value.to_string() {
-                                        panic!("Expected value={}. got={}", b_value, value);
-                                    }
+                                Expression::Literal(Literal::Boolean(n)) => {
+                                    assert_eq!(n.to_string(), value.to_string());
                                 }
                                 _ => panic!("Expected integer. got={:?}", right),
                             }
@@ -1007,69 +994,69 @@ mod tests {
         let inputs = vec![
             (
                 "5 + 5;",
-                Expression::Integer { value: 5 },
+                Expression::int(5),
                 "+",
-                Expression::Integer { value: 5 },
+                Expression::int(5),
             ),
             (
                 "5 - 5;",
-                Expression::Integer { value: 5 },
+                Expression::int(5),
                 "-",
-                Expression::Integer { value: 5 },
+                Expression::int(5),
             ),
             (
                 "5 * 5;",
-                Expression::Integer { value: 5 },
+                Expression::int(5),
                 "*",
-                Expression::Integer { value: 5 },
+                Expression::int(5),
             ),
             (
                 "5 / 5;",
-                Expression::Integer { value: 5 },
+                Expression::int(5),
                 "/",
-                Expression::Integer { value: 5 },
+                Expression::int(5),
             ),
             (
                 "5 > 5;",
-                Expression::Integer { value: 5 },
+                Expression::int(5),
                 ">",
-                Expression::Integer { value: 5 },
+                Expression::int(5),
             ),
             (
                 "5 < 5;",
-                Expression::Integer { value: 5 },
+                Expression::int(5),
                 "<",
-                Expression::Integer { value: 5 },
+                Expression::int(5),
             ),
             (
                 "5 == 5;",
-                Expression::Integer { value: 5 },
+                Expression::int(5),
                 "==",
-                Expression::Integer { value: 5 },
+                Expression::int(5),
             ),
             (
                 "5 != 5;",
-                Expression::Integer { value: 5 },
+                Expression::int(5),
                 "!=",
-                Expression::Integer { value: 5 },
+                Expression::int(5),
             ),
             (
                 "true == true",
-                Expression::Boolean { value: true },
+                Expression::bool(true),
                 "==",
-                Expression::Boolean { value: true },
+                Expression::bool(true),
             ),
             (
                 "true != false",
-                Expression::Boolean { value: true },
+                Expression::bool(true),
                 "!=",
-                Expression::Boolean { value: false },
+                Expression::bool(false),
             ),
             (
                 "false == false",
-                Expression::Boolean { value: false },
+                Expression::bool(false),
                 "==",
-                Expression::Boolean { value: false },
+                Expression::bool(false),
             ),
         ];
 
@@ -1204,13 +1191,9 @@ mod tests {
                     Statement::Expression { expression } => {
                         if !test_infix_expression(
                             expression,
-                            &Expression::Identifier {
-                                value: "x".to_string(),
-                            },
+                            &Expression::ident("x".to_string()),
                             &"+".to_string(),
-                            &Expression::Identifier {
-                                value: "y".to_string(),
-                            },
+                            &Expression::ident("y".to_string()),
                         ) {
                             panic!("Expected infix expression. got={:?}", expression);
                         }
@@ -1222,23 +1205,23 @@ mod tests {
         }
     }
 
-    fn test_literal_expression(exp: &ast::Expression, value: String) -> bool {
+    fn test_literal_expression(exp: &Expression, value: String) -> bool {
         match exp {
-            Expression::Integer { value: i_value } => {
+            Expression::Literal(Literal::Integer(i_value)) => {
                 if i_value.to_string() != value {
                     println!("exp not Expression::Integer. got={:?}", exp);
                     return false;
                 }
                 return true;
             }
-            Expression::Boolean { value: b_value } => {
+            Expression::Literal(Literal::Boolean(b_value)) => {
                 if b_value.to_string() != value {
                     println!("exp not Expression::Boolean. got={:?}", exp);
                     return false;
                 }
                 return true;
             }
-            Expression::Identifier { value: i_value } => {
+            Expression::Literal(Literal::Identifier(i_value)) => {
                 if i_value != &value {
                     println!("exp not Expression::Identifier got={:?}", exp);
                     return false;
@@ -1330,15 +1313,15 @@ mod tests {
         test_literal_expression(exp.1.get(0).unwrap(), "1".to_string());
         test_infix_expression(
             exp.1.get(1).unwrap(),
-            &Expression::Integer { value: 2 },
+            &Expression::int(2),
             &"*".to_string(),
-            &Expression::Integer { value: 3 },
+            &Expression::int(3),
         );
         test_infix_expression(
             exp.1.get(2).unwrap(),
-            &Expression::Integer { value: 4 },
+            &Expression::int(4),
             &"+".to_string(),
-            &Expression::Integer { value: 5 },
+            &Expression::int(5),
         );
     }
 
@@ -1361,7 +1344,7 @@ mod tests {
         let exp = match statement {
             Statement::Expression { expression } => {
                 match expression {
-                    Expression::String { value } => value,
+                    Expression::Literal(Literal::String(value)) => value,
                     _ => panic!("Expected string. got={:?}", expression),
                 }
             }
@@ -1405,9 +1388,9 @@ mod tests {
 
         if !test_infix_expression(
             exp.1,
-            &Expression::Integer { value: 1 },
+            &Expression::int(1),
             &"+".to_string(),
-            &Expression::Integer { value: 1 },
+            &Expression::int(1),
         ) {
             panic!("Expected infix expression. got={:?}", exp.1);
         }
@@ -1416,13 +1399,13 @@ mod tests {
 
     /// helper function of infix_expression
     fn test_infix_expression<T: Display>(
-        exp: &ast::Expression,
+        exp: &Expression,
         left: &T,
         operator: &String,
         right: &T,
     ) -> bool {
         match exp {
-            ast::Expression::Infix {
+            Expression::Infix {
                 left: l,
                 operator: op,
                 right: r,
@@ -1443,9 +1426,9 @@ mod tests {
         };
     }
 
-    fn test_identifier(exp: &ast::Expression, value: &str) -> bool {
+    fn test_identifier(exp: &Expression, value: &str) -> bool {
         match exp {
-            ast::Expression::Identifier { value: v } => {
+            Expression::Literal(Literal::Identifier(v))=> {
                 if v != value {
                     println!("exp::Identifier is not {}, got={}", value, v);
                     return false;

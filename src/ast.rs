@@ -1,8 +1,45 @@
-use std::fmt::{Display, Error, Formatter};
+use std::{fmt::{Display, Error, Formatter, Debug}, collections::{BTreeMap, HashMap}};
+
+use crate::{token::{Token, TokenType}, object::Object};
 
 
 pub trait Node {
     fn token_literal(&self) -> String;
+}
+
+
+pub trait IProgram {
+    fn program_node(&self) -> bool;
+}
+
+#[derive(Debug)]
+pub struct Program {
+    pub statements: Vec<Statement>,
+}
+
+impl IProgram for Program {
+    fn program_node(&self) -> bool {
+        true
+    }
+}
+
+impl Node for Program {
+    fn token_literal(&self) -> String {
+        if self.statements.len() > 0 {
+            self.statements[0].token_literal()
+        } else {
+            String::new()
+        }
+    }
+}
+
+impl Display for Program {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), Error> {
+        for statement in &self.statements {
+            write!(f, "{}", statement.to_string())?;
+        }
+        Ok(())
+    }
 }
 
 #[derive(PartialEq, Eq, Clone, Debug)]
@@ -67,18 +104,8 @@ impl Display for Statement {
 
 #[derive(PartialEq, Eq, Clone, Debug)]
 pub enum Expression {
-    Identifier {
-        value: String,
-    },
-    Integer {
-        value: i64,
-    },
-    String {
-        value: String,
-    },
-    Boolean {
-        value: bool,
-    },
+    Literal(Literal),
+    // MULTIPLE
     Array {
         elements: Vec<Expression>,
     },
@@ -86,6 +113,7 @@ pub enum Expression {
         left: Box<Expression>,
         index: Box<Expression>,
     },
+    // STATEMENTS
     If {
         condition:   Box<Expression>,
         consequence: Box<Statement>,
@@ -120,13 +148,25 @@ impl IExpression for Expression {
     }
 }
 
+impl Expression {
+    pub fn ident(string: String) -> Expression {
+        Expression::Literal(Literal::Identifier(string))
+    }
+    pub fn int(integer: i64) -> Expression {
+        Expression::Literal(Literal::Integer(integer))
+    }
+    pub fn string(string: String) -> Expression {
+        Expression::Literal(Literal::String(string))
+    }
+    pub fn bool(boolean: bool) -> Expression {
+        Expression::Literal(Literal::Boolean(boolean))
+    }
+}
+
 impl Node for Expression {
     fn token_literal(&self) -> String {
         match self {
-            Expression::Identifier { value } => value.to_string(),
-            Expression::Integer { value } => value.to_string(),
-            Expression::String { value } => value.to_string(),
-            Expression::Boolean { value } => value.to_string(),
+            Expression::Literal(literal) => literal.token_literal(),
             Expression::Array { .. } => "array".to_string(),
             Expression::Index { .. } => "index".to_string(),
             Expression::If { .. } => "if".to_string(),
@@ -141,10 +181,7 @@ impl Node for Expression {
 impl Display for Expression {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), Error> {
         match self {
-            Expression::Identifier { value, .. } => write!(f, "{}", value),
-            Expression::Integer { value, .. } => write!(f, "{}", value),
-            Expression::String { value, .. } => write!(f, "{}", value),
-            Expression::Boolean { value, .. } => write!(f, "{}", value),
+            Expression::Literal(literal) => write!(f, "{}", literal.to_string()),
             Expression::Array { elements } => {
                 write!(f, "[")?;
                 for (i, element) in elements.iter().enumerate() {
@@ -156,7 +193,7 @@ impl Display for Expression {
                 write!(f, "]")
             },
             Expression::Index { left, index } => {
-                write!(f, "{}[{}]", left.to_string(), index.to_string())
+                write!(f, "({}[{}])", left.to_string(), index.to_string())
             },
             Expression::If {
                 condition,
@@ -208,38 +245,89 @@ impl Display for Expression {
     }
 }
 
-pub trait IProgram {
-    fn program_node(&self) -> bool;
+#[derive(PartialEq, Eq, Clone,Debug)]
+pub enum Literal {
+    Identifier(String),
+    Integer(i64),
+    String(String),
+    Boolean(bool),
+    Hash(HashMap<String, Expression>),
 }
 
-#[derive(Debug)]
-pub struct Program {
-    pub statements: Vec<Statement>,
+pub trait ILiteral {
+    fn literal_node(&self) -> bool;
 }
 
-impl IProgram for Program {
-    fn program_node(&self) -> bool {
+impl ILiteral for Literal {
+    fn literal_node(&self) -> bool {
         true
     }
 }
 
-impl Node for Program {
+impl Node for Literal {
     fn token_literal(&self) -> String {
-        if self.statements.len() > 0 {
-            self.statements[0].token_literal()
-        } else {
-            String::new()
+        match self {
+            Literal::Identifier(value) => value.to_string(),
+            Literal::Integer(value) => value.to_string(),
+            Literal::String(value) => value.to_string(),
+            Literal::Boolean(value) => value.to_string(),
+            Literal::Hash(value) => {
+                let mut hash = vec![];
+                for (key, value) in value.iter() {
+                    hash.push(format!("{}:{}", key, value.to_string()));
+                }
+                format!("{{{}}}", hash.join(", "))
+            }
         }
     }
 }
 
-impl Display for Program {
+impl Display for Literal {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), Error> {
-        for statement in &self.statements {
-            write!(f, "{}", statement.to_string())?;
+        match self {
+            Literal::Identifier(value) => write!(f, "{}", value),
+            Literal::Integer(value) => write!(f, "{}", value),
+            Literal::String(value) => write!(f, "{}", value),
+            Literal::Boolean(value) => write!(f, "{}", value),
+            Literal::Hash(value) => {
+                let mut hash = vec![];
+                for (key, value) in value.iter() {
+                    hash.push(format!("{}:{}", key, value.to_string()));
+                }
+                write!(f, "{}", hash.join(", "))
+            }
         }
-        Ok(())
     }
+}
+
+impl Literal {
+    pub fn get_hash_value(&self, key: &str) -> Option<Object> {
+        match self {
+            Literal::Hash(value) => value.get(key).map(|value| match value {
+                Expression::Literal(Literal::String(value)) => {
+                    Object::String(value.to_string())
+                }
+                Expression::Literal(Literal::Integer(value)) => Object::Integer(*value),
+                Expression::Literal(Literal::Boolean(value)) => Object::Boolean(*value),
+                _ => Object::Null,
+            }),
+            _ => None,
+        }
+    }
+}
+
+impl Literal {
+    pub fn from_token(token: &Token) -> Self {
+        match token.token_type {
+            TokenType::STRING => Literal::String(token.to_string()),
+            TokenType::INT => Literal::Integer(token.to_string().parse::<i64>().unwrap()),
+            TokenType::TRUE => Literal::Boolean(true),
+            TokenType::FALSE => Literal::Boolean(false),
+            TokenType::IDENT => Literal::Identifier(token.to_string()),
+            _ => Literal::Identifier(token.to_string()),
+        }
+    }
+
 }
 
 #[cfg(test)]
@@ -252,17 +340,11 @@ mod tests {
         let program = Program {
             statements: vec![
                 Statement::Let {
-                    name:  Expression::Identifier {
-                        value: "myVar".to_string(),
-                    },
-                    value: Expression::Identifier {
-                        value: "five".to_string(),
-                    },
+                    name:  Expression::ident("myVar".to_string()),
+                    value: Expression::ident("five".to_string()),
                 },
                 Statement::Return {
-                    value: Expression::Identifier {
-                        value: "five".to_string(),
-                    },
+                    value: Expression::ident("five".to_string()),
                 },
             ],
         };

@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, BTreeMap};
 
 use once_cell::sync::Lazy;
 
@@ -7,23 +7,24 @@ use crate::object::{Object, IObject};
 type BuiltinFunc = fn(Vec<Object>) -> Object;
 
 pub static BUILTINS: Lazy<
-    HashMap<
+    BTreeMap<
         String,
         Object
     >
 > = Lazy::new(|| {
     let mut bfb = BuiltinFuncBuilder::new();
-    bfb.set("len", builtin_len as BuiltinFunc)
-        .set("first", builtin_first as BuiltinFunc)
-        .set("last", builtin_last as BuiltinFunc)
-        .set("rest", builtin_rest as BuiltinFunc)
-        .set("push", builtin_push as BuiltinFunc)
-        .set("pop", builtin_pop as BuiltinFunc)
-        .set("builtins", builtin_builtins as BuiltinFunc)
+    bfb.set("len", len as BuiltinFunc)
+        .set("first", first as BuiltinFunc)
+        .set("last", last as BuiltinFunc)
+        .set("rest", rest as BuiltinFunc)
+        .set("push", push as BuiltinFunc)
+        .set("pop", pop as BuiltinFunc)
+        .set("print", print as BuiltinFunc)
+        .set("builtins", builtins as BuiltinFunc)
     .build()
 });
 
-fn builtin_len(args: Vec<Object>) -> Object {
+fn len(args: Vec<Object>) -> Object {
     if args.len() != 1 {
         return Object::Error(format!("wrong number of arguments. got={}, want=1", args.len()));
     }
@@ -35,7 +36,7 @@ fn builtin_len(args: Vec<Object>) -> Object {
     }
 }
 
-fn builtin_first(args: Vec<Object>) -> Object {
+fn first(args: Vec<Object>) -> Object {
     if args.len() != 1 {
         return Object::Error(format!("wrong number of arguments. got={}, want=1", args.len()));
     }
@@ -52,7 +53,7 @@ fn builtin_first(args: Vec<Object>) -> Object {
     }
 }
 
-fn builtin_last(args: Vec<Object>) -> Object {
+fn last(args: Vec<Object>) -> Object {
     if args.len() != 1 {
         return Object::Error(format!("wrong number of arguments. got={}, want=1", args.len()));
     }
@@ -69,7 +70,7 @@ fn builtin_last(args: Vec<Object>) -> Object {
     }
 }
 
-fn builtin_rest(args: Vec<Object>) -> Object {
+fn rest(args: Vec<Object>) -> Object {
     if args.len() != 1 {
         return Object::Error(format!("wrong number of arguments. got={}, want=1", args.len()));
     }
@@ -90,7 +91,7 @@ fn builtin_rest(args: Vec<Object>) -> Object {
     }
 }
 
-fn builtin_push(args: Vec<Object>) -> Object {
+fn push(args: Vec<Object>) -> Object {
     if args.len() != 2 {
         return Object::Error(format!("wrong number of arguments. got={}, want=2", args.len()));
     }
@@ -105,7 +106,7 @@ fn builtin_push(args: Vec<Object>) -> Object {
     }
 }
 
-fn builtin_pop(args: Vec<Object>) -> Object {
+fn pop(args: Vec<Object>) -> Object {
     if args.len() != 1 {
         return Object::Error(format!("wrong number of arguments. got={}, want=1", args.len()));
     }
@@ -124,7 +125,48 @@ fn builtin_pop(args: Vec<Object>) -> Object {
     }
 }
 
-fn builtin_builtins(args: Vec<Object>) -> Object {
+fn print(args: Vec<Object>) -> Object {
+    if args.len() != 1 {
+        return Object::Error(format!("wrong number of arguments. got={}, want=1", args.len()));
+    }
+    let argument = &args[0];
+    match argument {
+        Object::String(string) => {
+            println!("{}", string);
+            Object::Null
+        }
+        Object::Integer(integer) => {
+            println!("{}", integer);
+            Object::Null
+        }
+        Object::Boolean(boolean) => {
+            println!("{}", boolean);
+            Object::Null
+        }
+        Object::Null => {
+            println!("null");
+            Object::Null
+        }
+        Object::Array(array) => {
+            for element in array {
+                print!("{}", element);
+            }
+            Object::Null
+        }
+        Object::Function { parameters, body, env } => {
+            let params = parameters.iter().map(|p| p.to_string()).collect::<Vec<String>>().join(", ");
+            println!("fn({}) {{{}}}", params, body);
+            Object::Null
+        }
+        Object::Error(string) => {
+            println!("{}", string);
+            Object::Null
+        }
+        _ => Object::Error(format!("argument to `print` not supported, got {}", argument.typ())),
+    }
+}
+
+fn builtins(args: Vec<Object>) -> Object {
     if args.len() != 0 {
         return Object::Error(format!("wrong number of arguments. got={}, want=0", args.len()));
     }
@@ -132,19 +174,20 @@ fn builtin_builtins(args: Vec<Object>) -> Object {
 }
 
 struct BuiltinFuncBuilder {
-    pub map: HashMap<String, Object>,
+    pub map: BTreeMap<String, Object>,
 }
 impl BuiltinFuncBuilder {
     pub fn new() -> BuiltinFuncBuilder  {
         BuiltinFuncBuilder {
-            map: HashMap::new(),
+            map: BTreeMap::new(),
         }
     }
     pub fn set(&mut self, name: &str, func: fn(Vec<Object>) -> Object) -> &mut Self {
         self.map.insert(name.to_string(), Object::Builtin { name: name.to_string(), func });
         self
     }
-    pub fn build(&mut self) -> HashMap<String, Object> {
+    pub fn build(&mut self) -> BTreeMap<String, Object> {
         self.map.clone()
     }
 }
+

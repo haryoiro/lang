@@ -1,4 +1,4 @@
-use crate::token::{self, Token};
+use crate::token::{self, Token, TokenType};
 
 #[derive(Debug)]
 pub struct Lexer<'a> {
@@ -6,6 +6,7 @@ pub struct Lexer<'a> {
     pub position:      usize,
     pub read_position: usize,
     pub ch:            char,
+    pub pos:           token::CodePosition,
 }
 
 impl<'a> Lexer<'a> {
@@ -15,9 +16,9 @@ impl<'a> Lexer<'a> {
             position: 0,
             read_position: 0,
             ch: ' ',
+            pos: token::CodePosition::new()
         };
         l.read_char();
-        let l = l;
         return l;
     }
 
@@ -29,11 +30,11 @@ impl<'a> Lexer<'a> {
         }
         self.position = self.read_position;
         self.read_position += 1;
+        self.pos.inc_column();
     }
 
     pub fn next_token(&mut self) -> Token {
         self.skip_whitespace();
-
         let token = match self.ch {
             // Operators
             '=' => {
@@ -43,13 +44,13 @@ impl<'a> Lexer<'a> {
                     // Check Deep Equal Operator "==="
                     if self.peek_char() == '=' {
                         self.read_char();
-                        Token::with_str(token::DEEP_EQ, "===".to_string())
+                        Token::new(TokenType::DeepEq, self.pos)
                     } else {
                         // return Equal Operator "=="
-                        Token::with_str(token::EQ, "==".to_string())
+                        Token::new(TokenType::EQ, self.pos)
                     }
                 } else {
-                    Token::new(token::ASSIGN, self.ch)
+                    Token::new(TokenType::ASSIGN, self.pos)
                 }
             }
             '!' => {
@@ -59,42 +60,43 @@ impl<'a> Lexer<'a> {
                     // Check Deep Not Equal Operator "!=="
                     if self.peek_char() == '=' {
                         self.read_char();
-                        Token::with_str(token::DEEP_NOT_EQ, "!==".to_string())
+                        Token::new(TokenType::DeepNotEq,self.pos)
                     } else {
                         // return Not Equal Operator "!="
-                        Token::with_str(token::NOT_EQ, "!=".to_string())
+                        Token::new(TokenType::NotEq, self.pos)
                     }
                 } else {
-                    Token::new(token::BANG, self.ch)
+                    Token::new(TokenType::BANG, self.pos)
                 }
             }
-            '+' => Token::new(token::PLUS, self.ch),
-            '-' => Token::new(token::MINUS, self.ch),
-            '*' => Token::new(token::ASTERISK, self.ch),
-            '/' => Token::new(token::SLASH, self.ch),
-            '<' => Token::new(token::LT, self.ch),
-            '>' => Token::new(token::GT, self.ch),
+            '+' => Token::new(TokenType::PLUS, self.pos),
+            '-' => Token::new(TokenType::MINUS, self.pos),
+            '*' => Token::new(TokenType::ASTERISK, self.pos),
+            '/' => Token::new(TokenType::SLASH, self.pos),
+            '<' => Token::new(TokenType::LT, self.pos),
+            '>' => Token::new(TokenType::GT, self.pos),
             // Delimiters
-            ',' => Token::new(token::COMMA, self.ch),
-            ';' => Token::new(token::SEMICOLON, self.ch),
-            '(' => Token::new(token::LPAREN, self.ch),
-            ')' => Token::new(token::RPAREN, self.ch),
-            '[' => Token::new(token::LBRACKET, self.ch),
-            ']' => Token::new(token::RBRACKET, self.ch),
-            '{' => Token::new(token::LBRACE, self.ch),
-            '}' => Token::new(token::RBRACE, self.ch),
-            '"' => Token::with_str(token::STRING, self.read_string()),
-            '\0' => Token::with_str(token::EOF, String::new()),
+            ',' => Token::new(TokenType::COMMA, self.pos),
+            ';' => Token::new(TokenType::SEMICOLON, self.pos),
+            ':' => Token::new(TokenType::COLON, self.pos),
+            '(' => Token::new(TokenType::LPAREN, self.pos),
+            ')' => Token::new(TokenType::RPAREN, self.pos),
+            '[' => Token::new(TokenType::LBRACKET, self.pos),
+            ']' => Token::new(TokenType::RBRACKET, self.pos),
+            '{' => Token::new(TokenType::LBRACE, self.pos),
+            '}' => Token::new(TokenType::RBRACE, self.pos),
+            '"' => Token::with_literal(TokenType::STRING, self.read_string(), self.pos),
+            '\0' => Token::with_literal(TokenType::EOF, String::new(), self.pos),
             _ => {
                 if is_letter(self.ch) {
                     let ident = self.read_identifier();
-                    let token_type = token::lookup_ident(&ident);
-                    return Token::with_str(token_type, ident);
+                    let token_type = TokenType::lookup_ident(&ident);
+                    return Token::with_literal(token_type, ident, self.pos);
                 } else if is_digit(self.ch) {
                     let literal = self.read_number();
-                    return Token::with_str(token::INT, literal);
+                    return Token::with_literal(TokenType::INT, literal, self.pos);
                 } else {
-                    Token::new(token::ILLEGAL, self.ch)
+                    Token::new(TokenType::ILLEGAL, self.pos)
                 }
             }
         };
@@ -167,6 +169,9 @@ impl<'a> Lexer<'a> {
 
     fn skip_whitespace(&mut self) {
         while self.ch == ' ' || self.ch == '\t' || self.ch == '\n' || self.ch == '\r' {
+            if self.ch == '\n' {
+                self.pos.newline();
+            }
             self.read_char();
         }
     }
@@ -182,7 +187,7 @@ fn is_digit(ch: char) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use crate::{lexer, token};
+    use crate::{lexer, token::{self, TokenType}};
 
     #[test]
     fn test_next_token_2() {
@@ -211,114 +216,120 @@ mod tests {
         "foo\nbar"
         [1, 2];
         ["foo", "bar"];
-
+        {"foo": "bar"}
         "#;
 
         let expected = vec![
-            (token::LET, "let"),
-            (token::IDENT, "five"),
-            (token::ASSIGN, "="),
-            (token::INT, "5"),
-            (token::SEMICOLON, ";"),
-            (token::LET, "let"),
-            (token::IDENT, "ten"),
-            (token::ASSIGN, "="),
-            (token::INT, "10"),
-            (token::SEMICOLON, ";"),
-            (token::LET, "let"),
-            (token::IDENT, "add"),
-            (token::ASSIGN, "="),
-            (token::FUNCTION, "fn"),
-            (token::LPAREN, "("),
-            (token::IDENT, "x"),
-            (token::COMMA, ","),
-            (token::IDENT, "y"),
-            (token::RPAREN, ")"),
-            (token::LBRACE, "{"),
-            (token::IDENT, "x"),
-            (token::PLUS, "+"),
-            (token::IDENT, "y"),
-            (token::SEMICOLON, ";"),
-            (token::RBRACE, "}"),
-            (token::SEMICOLON, ";"),
+            (TokenType::LET, "let"),
+            (TokenType::IDENT, "five"),
+            (TokenType::ASSIGN, "="),
+            (TokenType::INT, "5"),
+            (TokenType::SEMICOLON, ";"),
+            (TokenType::LET, "let"),
+            (TokenType::IDENT, "ten"),
+            (TokenType::ASSIGN, "="),
+            (TokenType::INT, "10"),
+            (TokenType::SEMICOLON, ";"),
+            (TokenType::LET, "let"),
+            (TokenType::IDENT, "add"),
+            (TokenType::ASSIGN, "="),
+            (TokenType::FUNCTION, "fn"),
+            (TokenType::LPAREN, "("),
+            (TokenType::IDENT, "x"),
+            (TokenType::COMMA, ","),
+            (TokenType::IDENT, "y"),
+            (TokenType::RPAREN, ")"),
+            (TokenType::LBRACE, "{"),
+            (TokenType::IDENT, "x"),
+            (TokenType::PLUS, "+"),
+            (TokenType::IDENT, "y"),
+            (TokenType::SEMICOLON, ";"),
+            (TokenType::RBRACE, "}"),
+            (TokenType::SEMICOLON, ";"),
             // let result = add(five, ten);
-            (token::LET, "let"),
-            (token::IDENT, "result"),
-            (token::ASSIGN, "="),
-            (token::IDENT, "add"),
-            (token::LPAREN, "("),
-            (token::IDENT, "five"),
-            (token::COMMA, ","),
-            (token::IDENT, "ten"),
-            (token::RPAREN, ")"),
-            (token::SEMICOLON, ";"),
+            (TokenType::LET, "let"),
+            (TokenType::IDENT, "result"),
+            (TokenType::ASSIGN, "="),
+            (TokenType::IDENT, "add"),
+            (TokenType::LPAREN, "("),
+            (TokenType::IDENT, "five"),
+            (TokenType::COMMA, ","),
+            (TokenType::IDENT, "ten"),
+            (TokenType::RPAREN, ")"),
+            (TokenType::SEMICOLON, ";"),
             // !-/*5;
-            (token::BANG, "!"),
-            (token::MINUS, "-"),
-            (token::SLASH, "/"),
-            (token::ASTERISK, "*"),
-            (token::INT, "5"),
-            (token::SEMICOLON, ";"),
+            (TokenType::BANG, "!"),
+            (TokenType::MINUS, "-"),
+            (TokenType::SLASH, "/"),
+            (TokenType::ASTERISK, "*"),
+            (TokenType::INT, "5"),
+            (TokenType::SEMICOLON, ";"),
             // 5 < 10 > 5;
-            (token::INT, "5"),
-            (token::LT, "<"),
-            (token::INT, "10"),
-            (token::GT, ">"),
-            (token::INT, "5"),
-            (token::SEMICOLON, ";"),
+            (TokenType::INT, "5"),
+            (TokenType::LT, "<"),
+            (TokenType::INT, "10"),
+            (TokenType::GT, ">"),
+            (TokenType::INT, "5"),
+            (TokenType::SEMICOLON, ";"),
             // if (5 < 10) {
             //     return true;
             // } else {
             //     return false;
             // }
-            (token::IF, "if"),
-            (token::LPAREN, "("),
-            (token::INT, "5"),
-            (token::LT, "<"),
-            (token::INT, "10"),
-            (token::RPAREN, ")"),
-            (token::LBRACE, "{"),
-            (token::RETURN, "return"),
-            (token::TRUE, "true"),
-            (token::SEMICOLON, ";"),
-            (token::RBRACE, "}"),
-            (token::ELSE, "else"),
-            (token::LBRACE, "{"),
-            (token::RETURN, "return"),
-            (token::FALSE, "false"),
-            (token::SEMICOLON, ";"),
-            (token::RBRACE, "}"),
+            (TokenType::IF, "if"),
+            (TokenType::LPAREN, "("),
+            (TokenType::INT, "5"),
+            (TokenType::LT, "<"),
+            (TokenType::INT, "10"),
+            (TokenType::RPAREN, ")"),
+            (TokenType::LBRACE, "{"),
+            (TokenType::RETURN, "return"),
+            (TokenType::TRUE, "true"),
+            (TokenType::SEMICOLON, ";"),
+            (TokenType::RBRACE, "}"),
+            (TokenType::ELSE, "else"),
+            (TokenType::LBRACE, "{"),
+            (TokenType::RETURN, "return"),
+            (TokenType::FALSE, "false"),
+            (TokenType::SEMICOLON, ";"),
+            (TokenType::RBRACE, "}"),
             // 10 == 10;
-            (token::INT, "10"),
-            (token::EQ, "=="),
-            (token::INT, "10"),
-            (token::SEMICOLON, ";"),
+            (TokenType::INT, "10"),
+            (TokenType::EQ, "=="),
+            (TokenType::INT, "10"),
+            (TokenType::SEMICOLON, ";"),
             // 10 != 9;
-            (token::INT, "10"),
-            (token::NOT_EQ, "!="),
-            (token::INT, "9"),
-            (token::SEMICOLON, ";"),
+            (TokenType::INT, "10"),
+            (TokenType::NotEq, "!="),
+            (TokenType::INT, "9"),
+            (TokenType::SEMICOLON, ";"),
             // "foobar"
-            (token::STRING, "foobar"),
+            (TokenType::STRING, "foobar"),
             // "foo bar"
-            (token::STRING, "foo bar"),
+            (TokenType::STRING, "foo bar"),
             // "foo\nbar"
-            (token::STRING, "foo\nbar"),
+            (TokenType::STRING, "foo\nbar"),
             // [1, 2];
-            (token::LBRACKET, "["),
-            (token::INT, "1"),
-            (token::COMMA, ","),
-            (token::INT, "2"),
-            (token::RBRACKET, "]"),
-            (token::SEMICOLON, ";"),
+            (TokenType::LBRACKET, "["),
+            (TokenType::INT, "1"),
+            (TokenType::COMMA, ","),
+            (TokenType::INT, "2"),
+            (TokenType::RBRACKET, "]"),
+            (TokenType::SEMICOLON, ";"),
             // ["foo", "bar"];
-            (token::LBRACKET, "["),
-            (token::STRING, "foo"),
-            (token::COMMA, ","),
-            (token::STRING, "bar"),
-            (token::RBRACKET, "]"),
-            (token::SEMICOLON, ";"),
-            (token::EOF, ""),
+            (TokenType::LBRACKET, "["),
+            (TokenType::STRING, "foo"),
+            (TokenType::COMMA, ","),
+            (TokenType::STRING, "bar"),
+            (TokenType::RBRACKET, "]"),
+            (TokenType::SEMICOLON, ";"),
+            // {"foo": "bar"}
+            (TokenType::LBRACE, "{"),
+            (TokenType::STRING, "foo"),
+            (TokenType::COLON, ":"),
+            (TokenType::STRING, "bar"),
+            (TokenType::RBRACE, "}"),
+            (TokenType::EOF, ""),
         ];
 
         let mut lexer = lexer::Lexer::new(input);
@@ -327,17 +338,17 @@ mod tests {
             let token = lexer.next_token();
             println!("{:?}", token);
 
-            if token.type_ != *expected_type {
+            if token.token_type != *expected_type {
                 panic!(
                     "tests[{}]: expected token type {}, got {}",
-                    i, expected_type, token.type_
+                    i, expected_type, token.token_type
                 );
             }
 
-            if token.literal != *expected_literal {
+            if token.to_string() != expected_literal.to_string(){
                 panic!(
                     "tests[{}]: expected token literal {}, got {}",
-                    i, expected_literal, token.literal
+                    i, expected_literal, token.to_string()
                 );
             }
         }

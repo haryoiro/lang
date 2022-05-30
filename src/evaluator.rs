@@ -1,8 +1,5 @@
-
-use std::process::id;
-
 use crate::{
-    ast::{ Expression,  Program, Statement},
+    ast::{ Expression,  Program, Statement, Literal},
     environment::Environment,
     object::{IObject, Object, ERROR_TYPE, RETURN_VALUE_TYPE}, builtins::BUILTINS,
 };
@@ -63,9 +60,19 @@ impl Eval for Statement {
 impl Eval for Expression {
     fn eval(&self, env: &mut Environment) -> Object {
         match self {
-            Expression::Integer { value } => Object::Integer(*value),
-            Expression::String { value } => Object::String(value.to_string()),
-            Expression::Boolean { value } => Object::Boolean(*value),
+            Expression::Literal(literal) => {
+                match literal {
+                    Literal::String(s) => Object::String(s.to_string()),
+                    Literal::Boolean(b) => Object::Boolean(*b),
+                    Literal::Integer(i) => Object::Integer(*i),
+                    Literal::Identifier(s) =>{
+                        return eval_identifier(s, env);
+                    },
+                    Literal::Hash(hash) => {
+                        return eval_hash_literal(hash, env);
+                    }
+                }
+            }
             Expression::Array { elements } => {
                 if elements.len() == 1 && is_error_object(&elements[0].eval(env)) {
                     return elements[0].eval(env);
@@ -122,9 +129,6 @@ impl Eval for Expression {
                 } else {
                     Object::Null
                 }
-            }
-            Expression::Identifier { value } => {
-                return eval_identifier(value, env).clone();
             }
             Expression::Function { parameters, body } => {
                 return Object::Function { parameters:parameters.to_vec(), body: body.clone(), env:env.clone() };
@@ -345,7 +349,7 @@ fn extend_function_env(func: Object, args: &[Object]) -> Option<Environment> {
 
             for (i, param) in parameters.iter().enumerate() {
                 match param {
-                    Expression::Identifier { value } => {
+                    Expression::Literal(Literal::Identifier(value)) => {
                         if args.len() >= i {
                             extended_env.set(value.to_string(), args[i].clone());
                         } else {
@@ -386,7 +390,7 @@ mod tests {
     use super::*;
     use crate::{
         error::print_parser_errors,
-        object::{self, IObject}, lexer::Lexer, parser::Parser,
+        object::{self, IObject}, lexer::Lexer, parser::Parser, ast::Node,
     };
 
     #[test]
@@ -572,7 +576,7 @@ mod tests {
                 ..
             } => {
                 assert_eq!(parameters.len(), 1);
-                assert_eq!(parameters[0].to_string(), "x");
+                assert_eq!(parameters[0].token_literal(), "x");
 
                 let expected_body = "(x + 2)".to_string();
                 assert_eq!(body.to_string(), expected_body);
@@ -715,6 +719,84 @@ mod tests {
         }
     }
 
+    #[test]
+    fn test_parsing_hash_literals_string_keys() {
+        let input = r#"{"one": 1, "two": 2, "three": 3}"#;
+
+        let mut lex = Lexer::new(&input.to_string());
+        let mut parser = Parser::new(&mut lex);
+        let program = parser.parse_program();
+
+        let statements = program.statements[0];
+        match statements {
+            Statement::Expression { expression } => {
+                match expression {
+                    Expression::Literal(lit) => {
+                        test_integer_object(lit.get_hash_value("one").unwrap(), 1);
+                        test_integer_object(lit.get_hash_value("two").unwrap(), 2);
+                        test_integer_object(lit.get_hash_value("three").unwrap(), 3);
+
+                    }
+                    _ => panic!("not a hash object"),
+                }
+            }
+            _ => panic!("not an expression statement"),
+        }
+    }
+
+    #[test]
+    fn test_parsing_empty_hash_literal() {
+        let input = "{}";
+
+        let mut lex = Lexer::new(&input.to_string());
+        let mut parser = Parser::new(&mut lex);
+        let program = parser.parse_program();
+
+        let statements = program.statements[0];
+        match statements {
+            Statement::Expression { expression } => {
+                match expression {
+                    Expression::Literal(Literal::Hash(h)) => {
+                        assert_eq!(h.keys().len(), 0);
+                    }
+                    _ => panic!("not a hash object"),
+                }
+            }
+            _ => panic!("not an expression statement"),
+        }
+    }
+
+    #[test]
+    fn test_parsing_hash_literals_with_expressions() {
+        let input = r#"{"one": 0 + 1, "two": 10 - 8, "three": 15 / 5}"#;
+
+        let mut lex = Lexer::new(&input.to_string());
+        let mut parser = Parser::new(&mut lex);
+        let program = parser.parse_program();
+
+        let statements = program.statements[0];
+        match statements {
+            Statement::Expression { expression } => {
+                match expression {
+                    Expression::Literal(Literal::Hash(h)) => {
+                        for i in h.keys() {
+                            let a = h.get(i).unwrap();
+                            if i == "one" {
+                                test_infix_expression(a.clone(), 0, "+", 1);
+                            } else if i == "two" {
+                                test_infix_expression(a.clone(), 10, "-", 8);
+                            } else if i == "three" {
+                                test_infix_expression(a.clone(), 15, "/", 5);
+                            }
+                        }
+                    }
+                    _ => panic!("not a hash object"),
+                }
+            }
+            _ => panic!("not an expression statement"),
+        }
+    }
+
     fn test_eval(input: String) -> Object {
         let mut env = Environment::new();
         let mut lexer = Lexer::new(&input);
@@ -793,6 +875,70 @@ mod tests {
             println!("----");
             return false;
         }
+
+        return true;
+    }
+
+    fn test_infix_expression(exp: Expression, left: i64, operator: &str, right: i64) -> bool {
+        match exp {
+            Expression::Infix { operator:i_operator,left: i_left, right:i_right } => {
+                let mut out = true;
+                if i_operator != operator {
+                    println!("----");
+                    println!("operator is not {}. got={}", operator, i_operator);
+                    println!("----");
+                    return false;
+                }
+
+                let out = match *i_left {
+                    Expression::Literal(Literal::Integer(i)) => {
+                        if left != i {
+                            println!("----");
+                            println!("left is not {}. got={}", left, i);
+                            println!("----");
+                            return false;
+                        }
+                        return true;
+                    },
+                    _ => false
+                };
+
+                if out != true {
+                    println!("----");
+                    println!("left is not Integer. got={}", i_left);
+                    println!("----");
+                    return false;
+                }
+
+                let out = match *i_right {
+                    Expression::Literal(Literal::Integer(i)) => {
+                        if right != i {
+                            println!("----");
+                            println!("right is not {}. got={}", right, i);
+                            println!("----");
+                            return false;
+                        }
+                        true
+                    },
+                    _ => false
+                };
+
+                if out != true {
+                    println!("----");
+                    println!("right is not Integer. got={}", i_right);
+                    println!("----");
+                    return false;
+                }
+
+                return true;
+            }
+            _ => {
+                println!("----");
+                println!("exp is not Infix. got={}", exp);
+                println!("----");
+                return false;
+            }
+        };
 
         return true;
     }

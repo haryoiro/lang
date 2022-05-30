@@ -31,7 +31,6 @@ pub fn start(stdin: &mut io::Stdin, stdout: &mut io::Stdout) {
             continue;
         }
 
-        let result = program.eval(&mut env);
-        println!("{}", result);
+        program.eval(&mut env);
     }
 }
