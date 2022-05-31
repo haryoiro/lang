@@ -1,4 +1,4 @@
-use std::fmt::{Display, Formatter, self, Debug};
+use std::fmt::{self, Debug, Display, Formatter};
 
 // pub type TokenType = &'static str;
 
@@ -46,7 +46,7 @@ use std::fmt::{Display, Formatter, self, Debug};
 // pub const ELSE: TokenType = "ELSE";
 // pub const RETURN: TokenType = "RETURN";
 
-#[derive(Hash,Debug, Clone, PartialEq, Eq)]
+#[derive(Hash, Debug, Clone, PartialEq, Eq)]
 pub enum TokenType {
     ILLEGAL,
     EOF,
@@ -126,7 +126,7 @@ impl Display for TokenType {
 impl TokenType {
     pub fn is_operator(&self) -> bool {
         match self {
-            | TokenType::ASSIGN
+            TokenType::ASSIGN
             | TokenType::PLUS
             | TokenType::MINUS
             | TokenType::BANG
@@ -177,18 +177,18 @@ impl TokenType {
     }
 }
 
-
-
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct CodePosition {
-    pub line: u32,
+    pub line:   u32,
     pub column: u32,
 }
 
 impl CodePosition {
     pub fn new() -> CodePosition {
-        CodePosition { line: 1, column: 1 }
+        CodePosition {
+            line:   1,
+            column: 1,
+        }
     }
 
     pub fn inc_column(&mut self) {
@@ -202,23 +202,26 @@ impl CodePosition {
 
 impl Default for CodePosition {
     fn default() -> Self {
-        CodePosition { line: 1, column: 1 }
+        CodePosition {
+            line:   1,
+            column: 1,
+        }
     }
 }
 
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub struct Token {
     pub token_type: TokenType,
-    pub literal: Option<String>,
-    pub position: CodePosition,
+    pub literal:    Option<String>,
+    pub position:   CodePosition,
 }
 
 impl Token {
-    pub fn new(token:TokenType, pos: CodePosition) -> Token {
+    pub fn new(token: TokenType, pos: CodePosition) -> Token {
         Token {
             token_type: token,
-            literal: None,
-            position:  pos,
+            literal:    None,
+            position:   pos,
         }
     }
 
@@ -234,7 +237,7 @@ impl Token {
 impl Display for Token {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         if let Some(literal) = &self.literal {
-            write!(f, "{}",literal)
+            write!(f, "{}", literal)
         } else {
             write!(f, "{}", self.token_type)
         }
@@ -243,30 +246,30 @@ impl Display for Token {
 
 impl Debug for Token {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        write!(f, "[line {}, col {}] {}", self.position.line,self.position.column, self.token_type)
+        write!(
+            f,
+            "[line {}, col {}] {}",
+            self.position.line, self.position.column, self.token_type
+        )
     }
 }
-
-
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-
-
     #[test]
     fn test_token_string() {
         let pos = CodePosition::new();
-        let token = Token::new(TokenType::IDENT , pos);
+        let token = Token::new(TokenType::IDENT, pos);
         assert_eq!(token.to_string(), "IDENT");
-        let token  = Token::new(TokenType::COMMA, pos);
+        let token = Token::new(TokenType::COMMA, pos);
         assert_eq!(token.to_string(), ",");
-        let token  = Token::new(TokenType::SEMICOLON, pos);
+        let token = Token::new(TokenType::SEMICOLON, pos);
         assert_eq!(token.to_string(), ";");
-        let token  = Token::new(TokenType::LPAREN, pos);
+        let token = Token::new(TokenType::LPAREN, pos);
         assert_eq!(token.to_string(), "(");
-        let token  = Token::new(TokenType::RPAREN, pos);
+        let token = Token::new(TokenType::RPAREN, pos);
         assert_eq!(token.to_string(), ")")
     }
 }

@@ -16,7 +16,7 @@ impl<'a> Lexer<'a> {
             position: 0,
             read_position: 0,
             ch: ' ',
-            pos: token::CodePosition::new()
+            pos: token::CodePosition::new(),
         };
         l.read_char();
         return l;
@@ -60,7 +60,7 @@ impl<'a> Lexer<'a> {
                     // Check Deep Not Equal Operator "!=="
                     if self.peek_char() == '=' {
                         self.read_char();
-                        Token::new(TokenType::DeepNotEq,self.pos)
+                        Token::new(TokenType::DeepNotEq, self.pos)
                     } else {
                         // return Not Equal Operator "!="
                         Token::new(TokenType::NotEq, self.pos)
@@ -151,12 +151,12 @@ impl<'a> Lexer<'a> {
                             result.push(self.ch);
                         }
                     }
-                },
+                }
                 '\0' => panic!("Unterminated string"),
                 _ => result.push(self.ch),
             }
         }
-        return result
+        return result;
     }
 
     fn peek_char(&self) -> char {
@@ -187,7 +187,10 @@ fn is_digit(ch: char) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use crate::{lexer, token::{self, TokenType}};
+    use crate::{
+        lexer,
+        token::{self, TokenType},
+    };
 
     #[test]
     fn test_next_token_2() {
@@ -345,10 +348,12 @@ mod tests {
                 );
             }
 
-            if token.to_string() != expected_literal.to_string(){
+            if token.to_string() != expected_literal.to_string() {
                 panic!(
                     "tests[{}]: expected token literal {}, got {}",
-                    i, expected_literal, token.to_string()
+                    i,
+                    expected_literal,
+                    token.to_string()
                 );
             }
         }

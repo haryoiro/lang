@@ -1,7 +1,10 @@
+use std::{collections::HashMap, vec, hash::Hash};
+
 use crate::{
-    ast::{ Expression,  Program, Statement, Literal},
+    ast::{Expression, HashExpression, Literal, Program, Statement},
+    builtins::BUILTINS,
     environment::Environment,
-    object::{IObject, Object, ERROR_TYPE, RETURN_VALUE_TYPE}, builtins::BUILTINS,
+    object::{IObject, Object, ERROR_TYPE, RETURN_VALUE_TYPE},
 };
 
 fn is_error_object(obj: &Object) -> bool {
@@ -61,24 +64,17 @@ impl Eval for Expression {
     fn eval(&self, env: &mut Environment) -> Object {
         match self {
             Expression::Literal(literal) => {
-                match literal {
-                    Literal::String(s) => Object::String(s.to_string()),
-                    Literal::Boolean(b) => Object::Boolean(*b),
-                    Literal::Integer(i) => Object::Integer(*i),
-                    Literal::Identifier(s) =>{
-                        return eval_identifier(s, env);
-                    },
-                    Literal::Hash(hash) => {
-                        return eval_hash_literal(hash, env);
-                    }
-                }
+                return literal.eval(env);
             }
             Expression::Array { elements } => {
                 if elements.len() == 1 && is_error_object(&elements[0].eval(env)) {
                     return elements[0].eval(env);
                 }
                 return Object::Array(elements.iter().map(|e| e.eval(env)).collect());
-            },
+            }
+            Expression::Hash(hash) => {
+                return eval_hash_literal(hash, env);
+            }
             Expression::Index { left, index } => {
                 let left = left.eval(env);
                 if is_error_object(&left) {
@@ -89,7 +85,7 @@ impl Eval for Expression {
                     return index;
                 }
                 return eval_index_expression(left, index);
-            },
+            }
             Expression::Prefix { operator, right } => {
                 let right_obj = right.eval(env);
                 if is_error_object(&right_obj) {
@@ -131,9 +127,16 @@ impl Eval for Expression {
                 }
             }
             Expression::Function { parameters, body } => {
-                return Object::Function { parameters:parameters.to_vec(), body: body.clone(), env:env.clone() };
+                return Object::Function {
+                    parameters: parameters.to_vec(),
+                    body:       body.clone(),
+                    env:        env.clone(),
+                };
             }
-            Expression::Call { function, arguments } => {
+            Expression::Call {
+                function,
+                arguments,
+            } => {
                 let func = function.eval(env);
                 if is_error_object(&func) {
                     return func;
@@ -143,6 +146,19 @@ impl Eval for Expression {
                     return args[0].clone();
                 }
                 return apply_function(func, &args);
+            }
+        }
+    }
+}
+
+impl Eval for Literal {
+    fn eval(&self, env: &mut Environment) -> Object {
+        match self {
+            Literal::String(s) => Object::String(s.to_string()),
+            Literal::Boolean(b) => Object::Boolean(*b),
+            Literal::Integer(i) => Object::Integer(*i),
+            Literal::Identifier(s) => {
+                return eval_identifier(s, env);
             }
         }
     }
@@ -186,8 +202,10 @@ fn eval_infix_expression(operator: String, left: Object, right: Object) -> Objec
             return eval_boolean_infix_expression(operator, left, right);
         }
         // <string|integer|boolean|null> +|([!=]={1,2}) <string|integer|boolean|null>
-        (Object::String(_)|Object::Integer(_)|Object::Boolean(_)|Object::Null,
-        Object::String(_)|Object::Integer(_)|Object::Boolean(_)|Object::Null) => {
+        (
+            Object::String(_) | Object::Integer(_) | Object::Boolean(_) | Object::Null,
+            Object::String(_) | Object::Integer(_) | Object::Boolean(_) | Object::Null,
+        ) => {
             return eval_string_infix_expression(operator, left, right);
         }
         _ => {
@@ -198,7 +216,6 @@ fn eval_infix_expression(operator: String, left: Object, right: Object) -> Objec
                 right.typ()
             ))
         }
-
     }
 }
 
@@ -254,12 +271,7 @@ fn eval_index_expression(left: Object, index: Object) -> Object {
         (Object::Array(_), Object::Integer(_)) => {
             return eval_array_index_expression(left, index);
         }
-        _ => {
-            return Object::Error(format!(
-                "index operator not supported: {}",
-                index.typ()
-            ))
-        }
+        _ => return Object::Error(format!("index operator not supported: {}", index.typ())),
     }
 }
 
@@ -268,23 +280,18 @@ fn eval_array_index_expression(left: Object, index: Object) -> Object {
         Object::Array(array) => {
             let idx = match index {
                 Object::Integer(value) => value,
-                _ => return Object::Error(format!("index operator not supported: {}", index.typ())),
+                _ => {
+                    return Object::Error(format!("index operator not supported: {}", index.typ()))
+                }
             };
             if idx < 0 || idx > array.len() as i64 - 1 {
                 return Object::Null;
             }
             return array[idx as usize].clone();
         }
-        _ => {
-            return Object::Error(format!(
-                "index operator not supported: {}",
-                left.typ()
-            ))
-        }
+        _ => return Object::Error(format!("index operator not supported: {}", left.typ())),
     }
-
 }
-
 
 fn eval_block_statement(block: &[Statement], env: &mut Environment) -> Object {
     let mut result = Object::Null;
@@ -309,23 +316,44 @@ fn eval_expressions(expressions: &[Expression], env: &mut Environment) -> Vec<Ob
     result
 }
 
-fn eval_identifier<'a>(identifier: &'a str, env: &'a mut Environment) ->  Object {
-    let obj = env.get(identifier);
-    if let Ok(obj) = obj {
-        return obj;
-    }
+fn eval_identifier<'a>(identifier: &'a str, env: &'a mut Environment) -> Object {
 
     let builtin = BUILTINS.get(identifier);
     if let Some(builtin) = builtin {
         return builtin.clone();
     }
 
+    let obj = env.get(identifier);
+    if let Ok(obj) = obj {
+        return obj;
+    }
+
     return Object::Error(format!("identifier not found: {}", identifier));
+}
+
+fn eval_hash_literal(
+    pairs: &HashExpression,
+    env: &mut Environment,
+) -> Object {
+    let mut hash = vec![];
+    for (key, value) in pairs.0.clone() {
+        let evaluated_value = value.eval(env);
+        let evaluated_key = Object::from_literal(&key);
+        if is_error_object(&evaluated_value) {
+            return evaluated_value;
+        }
+        hash.push((evaluated_key, evaluated_value));
+    }
+    Object::Hash(hash)
 }
 
 fn apply_function(func: Object, args: &Vec<Object>) -> Object {
     match &func {
-        Object::Function { parameters:_, body, env:_ } => {
+        Object::Function {
+            parameters: _,
+            body,
+            env: _,
+        } => {
             let extended_env = extend_function_env(func.clone(), &args);
             let mut extended_env = match extended_env {
                 Some(env) => env,
@@ -334,18 +362,19 @@ fn apply_function(func: Object, args: &Vec<Object>) -> Object {
             let evaluated = body.eval(&mut extended_env);
             return unwrap_return_value(evaluated);
         }
-        Object::Builtin { func, .. } => {
-             func((&args).to_vec())
-        }
+        Object::Builtin { func, .. } => func((&args).to_vec()),
         _ => return Object::Error(format!("not a function: {}", func.typ())),
     }
 }
 
 fn extend_function_env(func: Object, args: &[Object]) -> Option<Environment> {
     match func {
-        Object::Function { parameters, body:_, env } => {
+        Object::Function {
+            parameters,
+            body: _,
+            env,
+        } => {
             let mut extended_env = Environment::new_enclosed(&env);
-
 
             for (i, param) in parameters.iter().enumerate() {
                 match param {
@@ -389,8 +418,11 @@ mod tests {
 
     use super::*;
     use crate::{
+        ast::Node,
         error::print_parser_errors,
-        object::{self, IObject}, lexer::Lexer, parser::Parser, ast::Node,
+        lexer::Lexer,
+        object::{self, IObject},
+        parser::Parser,
     };
 
     #[test]
@@ -570,10 +602,8 @@ mod tests {
         let evaluated = test_eval(input.to_string());
         println!("eval {}", evaluated);
         match evaluated {
-            Object::Function{
-                parameters,
-                body,
-                ..
+            Object::Function {
+                parameters, body, ..
             } => {
                 assert_eq!(parameters.len(), 1);
                 assert_eq!(parameters[0].token_literal(), "x");
@@ -604,7 +634,6 @@ mod tests {
 
     #[test]
     fn test_closures() {
-
         let input = r#"
         let loop = fn(x) {
             fn(y) {
@@ -625,8 +654,7 @@ mod tests {
         addTwo(2);
         "#;
 
-        let evaluated = test_eval(input.
-        to_string());
+        let evaluated = test_eval(input.to_string());
         println!("eval {}", evaluated);
         test_integer_object(evaluated, 4);
     }
@@ -634,15 +662,18 @@ mod tests {
     #[test]
     fn test_string_literals() {
         let input = vec![
-        ("\"Hello World!\"", "Hello World!"),
-        ("\"Hello\\nWorld!\"", "Hello\nWorld!"),
-        ("\"Hello\\rWorld!\"", "Hello\rWorld!"),
-        ("\"\\n\\r\\t\\\"\\\\\"", "\n\r\t\"\\"),
+            ("\"Hello World!\"", "Hello World!"),
+            ("\"Hello\\nWorld!\"", "Hello\nWorld!"),
+            ("\"Hello\\rWorld!\"", "Hello\rWorld!"),
+            ("\"\\n\\r\\t\\\"\\\\\"", "\n\r\t\"\\"),
         ];
 
         for (input, expected) in input {
             let evaluated = test_eval(input.to_string());
-            println!("=====->\neval\n---\n{}\n---\nexpect\n---\n{}\n====<-\n\n", evaluated, expected);
+            println!(
+                "=====->\neval\n---\n{}\n---\nexpect\n---\n{}\n====<-\n\n",
+                evaluated, expected
+            );
             match evaluated {
                 Object::String(s) => assert_eq!(s, expected),
                 _ => panic!("not a string object"),
@@ -652,12 +683,18 @@ mod tests {
 
     #[test]
     fn test_builtin_function() {
-        let inputs:Vec<(&str, Box<dyn Display>)> = vec![
+        let inputs: Vec<(&str, Box<dyn Display>)> = vec![
             ("len(\"\")", Box::new(0)),
             ("len(\"four\")", Box::new(4)),
             ("len(\"hello world\")", Box::new(11)),
-            ("len(1)", Box::new("argument to `len` not supported, got INTEGER")),
-            ("len(\"one\", \"two\")", Box::new("wrong number of arguments. got=2, want=1")),
+            (
+                "len(1)",
+                Box::new("argument to `len` not supported, got INTEGER"),
+            ),
+            (
+                "len(\"one\", \"two\")",
+                Box::new("wrong number of arguments. got=2, want=1"),
+            ),
         ];
 
         for (input, expected) in inputs {
@@ -674,9 +711,7 @@ mod tests {
 
     #[test]
     fn test_parsing_array_literals() {
-        let input = vec![
-            "[1, 2 * 2, 3 + 3]",
-        ];
+        let input = vec!["[1, 2 * 2, 3 + 3]"];
 
         for input in input {
             let evaluated = test_eval(input.to_string());
@@ -695,15 +730,21 @@ mod tests {
 
     #[test]
     fn test_array_index_expressions() {
-        let inputs:Vec<(&str, Box<dyn Display>)> = vec![
+        let inputs: Vec<(&str, Box<dyn Display>)> = vec![
             ("[1, 2, 3][0]", Box::new(1)),
             ("[1, 2, 3][1]", Box::new(2)),
             ("[1, 2, 3][2]", Box::new(3)),
             ("let i = 0; [1][i];", Box::new(1)),
             ("[1, 2, 3][1 + 1];", Box::new(3)),
             ("let myArray = [1, 2, 3]; myArray[2];", Box::new(3)),
-            ("let myArray = [1, 2, 3]; myArray[0] + myArray[1] + myArray[2];", Box::new(6)),
-            ("let myArray = [1, 2, 3]; let i = myArray[0]; myArray[i]", Box::new(2)),
+            (
+                "let myArray = [1, 2, 3]; myArray[0] + myArray[1] + myArray[2];",
+                Box::new(6),
+            ),
+            (
+                "let myArray = [1, 2, 3]; let i = myArray[0]; myArray[i]",
+                Box::new(2),
+            ),
             ("[1, 2, 3][3]", Box::new(Object::Null)),
             ("[1, 2, 3][-1]", Box::new(Object::Null)),
         ];
@@ -723,19 +764,27 @@ mod tests {
     fn test_parsing_hash_literals_string_keys() {
         let input = r#"{"one": 1, "two": 2, "three": 3}"#;
 
-        let mut lex = Lexer::new(&input.to_string());
+        let mut lex = Lexer::new(&input);
         let mut parser = Parser::new(&mut lex);
         let program = parser.parse_program();
 
-        let statements = program.statements[0];
+        let statements = &program.statements[0];
         match statements {
             Statement::Expression { expression } => {
                 match expression {
-                    Expression::Literal(lit) => {
-                        test_integer_object(lit.get_hash_value("one").unwrap(), 1);
-                        test_integer_object(lit.get_hash_value("two").unwrap(), 2);
-                        test_integer_object(lit.get_hash_value("three").unwrap(), 3);
-
+                    Expression::Hash(pairs) => {
+                        assert_eq!(pairs.0.len(), 3);
+                        for i in pairs.0.keys() {
+                            if i.to_string()  == "one" {
+                                assert_eq!(pairs.0.get(i).unwrap().to_string(), "1");
+                            }
+                            if i.to_string()  == "two" {
+                                assert_eq!(pairs.0.get(i).unwrap().to_string(), "2");
+                            }
+                            if i.to_string()  == "three" {
+                                assert_eq!(pairs.0.get(i).unwrap().to_string(), "3");
+                            }
+                        }
                     }
                     _ => panic!("not a hash object"),
                 }
@@ -748,16 +797,17 @@ mod tests {
     fn test_parsing_empty_hash_literal() {
         let input = "{}";
 
-        let mut lex = Lexer::new(&input.to_string());
+        let mut lex = Lexer::new(&input);
         let mut parser = Parser::new(&mut lex);
         let program = parser.parse_program();
 
-        let statements = program.statements[0];
+        let statements = &program.statements[0];
         match statements {
             Statement::Expression { expression } => {
                 match expression {
-                    Expression::Literal(Literal::Hash(h)) => {
-                        assert_eq!(h.keys().len(), 0);
+                    Expression::Hash(hash) => {
+                        println!("hash {:?}", hash);
+                        assert_eq!(hash.0.len(), 0);
                     }
                     _ => panic!("not a hash object"),
                 }
@@ -770,17 +820,19 @@ mod tests {
     fn test_parsing_hash_literals_with_expressions() {
         let input = r#"{"one": 0 + 1, "two": 10 - 8, "three": 15 / 5}"#;
 
-        let mut lex = Lexer::new(&input.to_string());
+        let mut lex = Lexer::new(&input);
         let mut parser = Parser::new(&mut lex);
         let program = parser.parse_program();
 
-        let statements = program.statements[0];
+        let statements = &program.statements[0];
         match statements {
             Statement::Expression { expression } => {
                 match expression {
-                    Expression::Literal(Literal::Hash(h)) => {
-                        for i in h.keys() {
-                            let a = h.get(i).unwrap();
+                    Expression::Hash(h) => {
+                        println!("hash {:?}", h);
+
+                        for i in h.0.keys() {
+                            let a = h.0.get(i).unwrap();
                             if i == "one" {
                                 test_infix_expression(a.clone(), 0, "+", 1);
                             } else if i == "two" {
@@ -881,7 +933,11 @@ mod tests {
 
     fn test_infix_expression(exp: Expression, left: i64, operator: &str, right: i64) -> bool {
         match exp {
-            Expression::Infix { operator:i_operator,left: i_left, right:i_right } => {
+            Expression::Infix {
+                operator: i_operator,
+                left: i_left,
+                right: i_right,
+            } => {
                 let mut out = true;
                 if i_operator != operator {
                     println!("----");
@@ -899,8 +955,8 @@ mod tests {
                             return false;
                         }
                         return true;
-                    },
-                    _ => false
+                    }
+                    _ => false,
                 };
 
                 if out != true {
@@ -919,8 +975,8 @@ mod tests {
                             return false;
                         }
                         true
-                    },
-                    _ => false
+                    }
+                    _ => false,
                 };
 
                 if out != true {

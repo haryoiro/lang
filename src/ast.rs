@@ -1,12 +1,16 @@
-use std::{fmt::{Display, Error, Formatter, Debug}, collections::{BTreeMap, HashMap}};
+use std::{
+    collections::{BTreeMap, HashMap},
+    fmt::{Debug, Display, Error, Formatter},
+};
 
-use crate::{token::{Token, TokenType}, object::Object};
-
+use crate::{
+    object::Object,
+    token::{Token, TokenType},
+};
 
 pub trait Node {
     fn token_literal(&self) -> String;
 }
-
 
 pub trait IProgram {
     fn program_node(&self) -> bool;
@@ -102,6 +106,11 @@ impl Display for Statement {
     }
 }
 
+#[derive(PartialEq, Clone, Debug)]
+pub struct HashExpression(pub HashMap<Literal, Expression>);
+impl Eq for HashExpression {
+}
+
 #[derive(PartialEq, Eq, Clone, Debug)]
 pub enum Expression {
     Literal(Literal),
@@ -109,8 +118,9 @@ pub enum Expression {
     Array {
         elements: Vec<Expression>,
     },
+    Hash(HashExpression),
     Index {
-        left: Box<Expression>,
+        left:  Box<Expression>,
         index: Box<Expression>,
     },
     // STATEMENTS
@@ -168,6 +178,7 @@ impl Node for Expression {
         match self {
             Expression::Literal(literal) => literal.token_literal(),
             Expression::Array { .. } => "array".to_string(),
+            Expression::Hash { .. } => "hash".to_string(),
             Expression::Index { .. } => "index".to_string(),
             Expression::If { .. } => "if".to_string(),
             Expression::Function { .. } => "fn".to_string(),
@@ -191,10 +202,17 @@ impl Display for Expression {
                     write!(f, "{}", element.to_string())?;
                 }
                 write!(f, "]")
-            },
+            }
+            Expression::Hash(hash_map) => {
+                write!(f, "{{ ")?;
+                for (key, value) in hash_map.0.iter() {
+                    write!(f, "{}: {}, ", key.to_string(), value.to_string())?;
+                }
+                write!(f, " }}")
+            }
             Expression::Index { left, index } => {
                 write!(f, "({}[{}])", left.to_string(), index.to_string())
-            },
+            }
             Expression::If {
                 condition,
                 consequence,
@@ -245,13 +263,12 @@ impl Display for Expression {
     }
 }
 
-#[derive(PartialEq, Eq, Clone,Debug)]
+#[derive(PartialEq, Eq, Hash, Clone, Debug)]
 pub enum Literal {
     Identifier(String),
     Integer(i64),
     String(String),
     Boolean(bool),
-    Hash(HashMap<String, Expression>),
 }
 
 pub trait ILiteral {
@@ -271,13 +288,6 @@ impl Node for Literal {
             Literal::Integer(value) => value.to_string(),
             Literal::String(value) => value.to_string(),
             Literal::Boolean(value) => value.to_string(),
-            Literal::Hash(value) => {
-                let mut hash = vec![];
-                for (key, value) in value.iter() {
-                    hash.push(format!("{}:{}", key, value.to_string()));
-                }
-                format!("{{{}}}", hash.join(", "))
-            }
         }
     }
 }
@@ -289,29 +299,6 @@ impl Display for Literal {
             Literal::Integer(value) => write!(f, "{}", value),
             Literal::String(value) => write!(f, "{}", value),
             Literal::Boolean(value) => write!(f, "{}", value),
-            Literal::Hash(value) => {
-                let mut hash = vec![];
-                for (key, value) in value.iter() {
-                    hash.push(format!("{}:{}", key, value.to_string()));
-                }
-                write!(f, "{}", hash.join(", "))
-            }
-        }
-    }
-}
-
-impl Literal {
-    pub fn get_hash_value(&self, key: &str) -> Option<Object> {
-        match self {
-            Literal::Hash(value) => value.get(key).map(|value| match value {
-                Expression::Literal(Literal::String(value)) => {
-                    Object::String(value.to_string())
-                }
-                Expression::Literal(Literal::Integer(value)) => Object::Integer(*value),
-                Expression::Literal(Literal::Boolean(value)) => Object::Boolean(*value),
-                _ => Object::Null,
-            }),
-            _ => None,
         }
     }
 }
@@ -327,7 +314,17 @@ impl Literal {
             _ => Literal::Identifier(token.to_string()),
         }
     }
+}
 
+impl PartialEq<str> for Literal {
+    fn eq(&self, other: &str) -> bool {
+        match self {
+            Literal::Identifier(value) => value == other,
+            Literal::Integer(value) => value.to_string() == other,
+            Literal::String(value) => value == other,
+            Literal::Boolean(value) => value.to_string() == other,
+        }
+    }
 }
 
 #[cfg(test)]

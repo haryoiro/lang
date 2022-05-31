@@ -2,7 +2,7 @@ use std::io::{self, BufRead, Write};
 
 use crate::{
     environment::Environment,
-    error::{print_parser_errors},
+    error::print_parser_errors,
     evaluator::Eval,
     lexer::Lexer,
     parser::Parser,

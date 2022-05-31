@@ -1,11 +1,10 @@
 use std::{
     collections::HashMap,
-    sync::{Arc, Mutex}, fmt::Display,
+    fmt::Display,
+    sync::{Arc, Mutex},
 };
 
-use crate::{
-    object::Object,
-};
+use crate::object::Object;
 
 #[derive(Debug, Clone)]
 pub struct Environment {
@@ -26,8 +25,8 @@ pub struct Environment {
 impl Environment {
     pub fn new() -> Environment {
         Environment {
-            map: Arc::new(Mutex::new(HashMap::new())),
-            outer: None,
+            map:      Arc::new(Mutex::new(HashMap::new())),
+            outer:    None,
             scope_id: 0,
         }
     }
@@ -59,7 +58,7 @@ impl Environment {
                         Err(e) => return Err(e),
                     };
                 } else {
-                    return Err(format!("identifier not found: {}", name))
+                    return Err(format!("identifier not found: {}", name));
                 }
             }
             None => return Err(format!("identifier not found: {}", name)),
@@ -71,7 +70,12 @@ impl Environment {
     }
 
     pub fn keys(&self) -> Vec<String> {
-        self.map.lock().unwrap().keys().map(|s| s.to_string()).collect()
+        self.map
+            .lock()
+            .unwrap()
+            .keys()
+            .map(|s| s.to_string())
+            .collect()
     }
 
     pub fn len(&self) -> usize {
@@ -103,7 +107,12 @@ impl Display for Environment {
         keys.sort();
         for key in keys {
             let value = self.get(&key).unwrap();
-            write!(f, "\nscope: {}\nkey: {}\nvalue: {}\n", self.scope_id, key, value).unwrap();
+            write!(
+                f,
+                "\nscope: {}\nkey: {}\nvalue: {}\n",
+                self.scope_id, key, value
+            )
+            .unwrap();
         }
         Ok(())
     }
