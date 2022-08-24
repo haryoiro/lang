@@ -5,7 +5,7 @@ use std::fmt::{self, Debug, Display, Formatter};
 // pub const ILLEGAL: TokenType = "ILLEGAL";
 // pub const EOF: TokenType = "EOF";
 
-// // Identifiers + literals
+// // Identifiers + lits
 // pub const IDENT: TokenType = "IDENT";
 // pub const INT: TokenType = "INT";
 // pub const STRING: TokenType = "STRING";
@@ -156,7 +156,7 @@ impl TokenType {
         }
     }
 
-    pub fn is_literal(&self) -> bool {
+    pub fn is_lit(&self) -> bool {
         match self {
             TokenType::INT | TokenType::STRING => true,
             _ => false,
@@ -212,7 +212,7 @@ impl Default for CodePosition {
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub struct Token {
     pub token_type: TokenType,
-    pub literal:    Option<String>,
+    pub lit:        Option<String>,
     pub position:   CodePosition,
 }
 
@@ -220,15 +220,15 @@ impl Token {
     pub fn new(token: TokenType, pos: CodePosition) -> Token {
         Token {
             token_type: token,
-            literal:    None,
+            lit:        None,
             position:   pos,
         }
     }
 
-    pub fn with_literal(token_type: TokenType, literal: String, pos: CodePosition) -> Token {
+    pub fn with_lit(token_type: TokenType, lit: String, pos: CodePosition) -> Token {
         Token {
             token_type,
-            literal: Some(literal),
+            lit: Some(lit),
             position: pos,
         }
     }
@@ -236,8 +236,8 @@ impl Token {
 
 impl Display for Token {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        if let Some(literal) = &self.literal {
-            write!(f, "{}", literal)
+        if let Some(lit) = &self.lit {
+            write!(f, "{}", lit)
         } else {
             write!(f, "{}", self.token_type)
         }

@@ -212,11 +212,7 @@ fn print(args: Vec<Object>) -> Object {
             println!("{}", out);
             Object::Null
         }
-        Object::Function {
-            parameters,
-            body,
-            env,
-        } => {
+        Object::Function(parameters, body, env) => {
             let params = parameters
                 .iter()
                 .map(|p| p.to_string())
@@ -263,13 +259,8 @@ impl BuiltinFuncBuilder {
         }
     }
     pub fn set(&mut self, name: &str, func: fn(Vec<Object>) -> Object) -> &mut Self {
-        self.map.insert(
-            name.to_string(),
-            Object::Builtin {
-                name: name.to_string(),
-                func,
-            },
-        );
+        self.map
+            .insert(name.to_string(), Object::Builtin(name.to_string(), func));
         self
     }
     pub fn build(&mut self) -> BTreeMap<String, Object> {

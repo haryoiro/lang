@@ -3,14 +3,14 @@ use std::{
     hash::{Hash, Hasher},
 };
 
-use crate::{
-    ast::{Expression, Statement, Literal},
-    environment::Environment,
-};
+use derive_more::Unwrap;
+
+use crate::{ast::Node, environment::Environment};
 
 pub type ObjectType = &'static str;
 
 pub const INTEGER_TYPE: ObjectType = "INTEGER";
+pub const FLOAAT_TYPE: ObjectType = "FLOAT";
 pub const STRING_TYPE: ObjectType = "STRING";
 pub const BOOLEAN_TYPE: ObjectType = "BOOLEAN";
 pub const ARRAY_TYPE: ObjectType = "ARRAY";
@@ -21,40 +21,26 @@ pub const ERROR_TYPE: ObjectType = "ERROR";
 pub const FUNCTION_TYPE: ObjectType = "FUNCTION";
 pub const BUILTIN_TYPE: ObjectType = "BUILTIN";
 
-#[derive(PartialEq, Debug, Clone)]
+type BuiltinFunction = fn(Vec<Object>) -> Object;
+#[derive(PartialEq, Debug, Clone, Unwrap)]
 pub enum Object {
     Integer(i64),
+    Float(f64),
     String(String),
     Boolean(bool),
     Array(Vec<Object>),
     Hash(Vec<(Object, Object)>),
     Null,
-    ReturnValue(Box<Object>),
+    Return(Box<Object>),
     Error(String),
-    Function {
-        parameters: Vec<Expression>,
-        body:       Box<Statement>,
-        env:        Environment,
-    },
-    Builtin {
-        name: String,
-        func: fn(Vec<Object>) -> Object,
-    },
+    /// parameters, body, env
+    Function(Vec<Node>, Box<Node>, Environment),
+    /// name, func
+    Builtin(String, BuiltinFunction),
 }
 
 pub trait IObject {
     fn typ(&self) -> ObjectType;
-}
-
-impl Object {
-    pub fn from_literal(literal: &Literal) -> Object {
-        match literal {
-            Literal::Integer(integer) => Object::Integer(*integer),
-            Literal::String(string) => Object::String(string.clone()),
-            Literal::Boolean(boolean) => Object::Boolean(*boolean),
-            Literal::Identifier(identifier) => Object::String(identifier.clone()),
-        }
-    }
 }
 
 impl IObject for Object {
@@ -66,10 +52,11 @@ impl IObject for Object {
             Object::Array(_) => ARRAY_TYPE,
             Object::Hash(_) => HASH_TYPE,
             Object::Null => NULL_TYPE,
-            Object::ReturnValue(_) => RETURN_VALUE_TYPE,
+            Object::Return(_) => RETURN_VALUE_TYPE,
             Object::Error(_) => ERROR_TYPE,
             Object::Function { .. } => FUNCTION_TYPE,
             Object::Builtin { .. } => BUILTIN_TYPE,
+            Object::Float(_) => todo!(),
         }
     }
 }
@@ -89,6 +76,7 @@ impl Display for Object {
     fn fmt(&self, f: &mut Formatter) -> Result<(), std::fmt::Error> {
         match self {
             Object::Integer(value) => write!(f, "{}", value),
+            Object::Float(value) => write!(f, "{}", value),
             Object::String(value) => write!(f, "{}", value),
             Object::Boolean(value) => write!(f, "{}", value),
             Object::Array(elements) => {
@@ -118,11 +106,9 @@ impl Display for Object {
                 write!(f, "}}")
             }
             Object::Null => write!(f, "null"),
-            Object::ReturnValue(value) => write!(f, "{}", value),
+            Object::Return(value) => write!(f, "{}", value),
             Object::Error(message) => write!(f, "ERROR: {}", message),
-            Object::Function {
-                parameters, body, ..
-            } => {
+            Object::Function(parameters, body, ..) => {
                 let params = parameters
                     .iter()
                     .map(|p| p.to_string())
@@ -130,7 +116,7 @@ impl Display for Object {
                     .join(", ");
                 write!(f, "fn ({}) {{\n{}\n}}", params, body.to_string())
             }
-            Object::Builtin { name, .. } => write!(f, "BUILTIN FUNCTION: {}", name),
+            Object::Builtin(name, ..) => write!(f, "BUILTIN FUNCTION: {}", name),
         }
     }
 }

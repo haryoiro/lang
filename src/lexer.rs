@@ -85,16 +85,16 @@ impl<'a> Lexer<'a> {
             ']' => Token::new(TokenType::RBRACKET, self.pos),
             '{' => Token::new(TokenType::LBRACE, self.pos),
             '}' => Token::new(TokenType::RBRACE, self.pos),
-            '"' => Token::with_literal(TokenType::STRING, self.read_string(), self.pos),
-            '\0' => Token::with_literal(TokenType::EOF, String::new(), self.pos),
+            '"' => Token::with_lit(TokenType::STRING, self.read_string(), self.pos),
+            '\0' => Token::with_lit(TokenType::EOF, String::new(), self.pos),
             _ => {
                 if is_letter(self.ch) {
                     let ident = self.read_identifier();
                     let token_type = TokenType::lookup_ident(&ident);
-                    return Token::with_literal(token_type, ident, self.pos);
+                    return Token::with_lit(token_type, ident, self.pos);
                 } else if is_digit(self.ch) {
-                    let literal = self.read_number();
-                    return Token::with_literal(TokenType::INT, literal, self.pos);
+                    let lit = self.read_number();
+                    return Token::with_lit(TokenType::INT, lit, self.pos);
                 } else {
                     Token::new(TokenType::ILLEGAL, self.pos)
                 }
@@ -187,10 +187,7 @@ fn is_digit(ch: char) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use crate::{
-        lexer,
-        token::{self, TokenType},
-    };
+    use crate::{lexer, token::TokenType};
 
     #[test]
     fn test_next_token_2() {
@@ -337,7 +334,7 @@ mod tests {
 
         let mut lexer = lexer::Lexer::new(input);
 
-        for (i, (expected_type, expected_literal)) in expected.iter().enumerate() {
+        for (i, (expected_type, expected_lit)) in expected.iter().enumerate() {
             let token = lexer.next_token();
             println!("{:?}", token);
 
@@ -348,11 +345,11 @@ mod tests {
                 );
             }
 
-            if token.to_string() != expected_literal.to_string() {
+            if token.to_string() != expected_lit.to_string() {
                 panic!(
-                    "tests[{}]: expected token literal {}, got {}",
+                    "tests[{}]: expected token lit {}, got {}",
                     i,
-                    expected_literal,
+                    expected_lit,
                     token.to_string()
                 );
             }

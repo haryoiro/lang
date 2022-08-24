@@ -3,6 +3,7 @@ pub mod builtins;
 pub mod environment;
 pub mod error;
 pub mod evaluator;
+// pub mod evaluator_bak;
 pub mod lexer;
 pub mod object;
 pub mod parser;
